@@ -60,6 +60,13 @@
 		gpio = <&pio 9 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 	};
+
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
+	};
 };
 
 &mfg_async {
