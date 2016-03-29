@@ -952,6 +952,17 @@
 		      <0x00000008 0x80000000 0x1 0x80000000>;
 	};
 
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/* Shared memory between secure and non-secure world */
+		optee@0xfee00000 {
+			reg = <0x00000000 0xfee00000 0 0x00200000>;
+		};
+	};
+
 	bus@8000000 {
 		#interrupt-cells = <1>;
 		interrupt-map-mask = <0 0 15>;
@@ -978,5 +989,12 @@
 		#interrupt-cells = <1>;
 		interrupt-map-mask = <0 0>;
 		interrupt-map = <0 0 &gic 0 GIC_SPI 168 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
 	};
 };
