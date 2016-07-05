@@ -28,6 +28,7 @@ static int pool_op_gen_alloc(struct tee_shm_pool_mgr *poolm,
 	va = gen_pool_alloc(genpool, s);
 	if (!va)
 		return -ENOMEM;
+	memset((void *)va, 0, s);
 	shm->kaddr = (void *)va;
 	shm->paddr = gen_pool_virt_to_phys(genpool, va);
 	shm->size = s;
