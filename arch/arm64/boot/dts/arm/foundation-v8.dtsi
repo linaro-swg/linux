@@ -22,7 +22,6 @@
 
 	aliases {
 		serial0 = &v2m_serial0;
-		serial1 = &v2m_serial1;
 		serial2 = &v2m_serial2;
 		serial3 = &v2m_serial3;
 	};
@@ -65,6 +64,16 @@
 		device_type = "memory";
 		reg = <0x00000000 0x80000000 0 0x80000000>,
 		      <0x00000008 0x80000000 0 0x80000000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		optee@0x83000000 {
+			reg = <0x00000000 0x83000000 0 0x01000000>;
+		};
 	};
 
 	timer {
@@ -196,14 +205,6 @@
 				clock-names = "uartclk", "apb_pclk";
 			};
 
-			v2m_serial1: serial@a0000 {
-				compatible = "arm,pl011", "arm,primecell";
-				reg = <0x0a0000 0x1000>;
-				interrupts = <6>;
-				clocks = <&v2m_clk24mhz>, <&v2m_clk24mhz>;
-				clock-names = "uartclk", "apb_pclk";
-			};
-
 			v2m_serial2: serial@b0000 {
 				compatible = "arm,pl011", "arm,primecell";
 				reg = <0x0b0000 0x1000>;
@@ -227,4 +228,12 @@
 			};
 		};
 	};
+
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
+	};
+
 };
