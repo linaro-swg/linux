@@ -27,6 +27,8 @@
 
 #define TEE_SHM_MAPPED		0x1	/* Memory mapped by the kernel */
 #define TEE_SHM_DMA_BUF		0x2	/* Memory with dma-buf handle */
+#define TEE_SHM_SECURE		0x4	/* unmapable dma-buf handle */
+
 
 struct tee_device;
 struct tee_shm;
@@ -274,6 +276,13 @@ int tee_shm_get_id(struct tee_shm *shm);
  * @returns a pointer to 'struct tee_shm' on success or an ERR_PTR on failure
  */
 struct tee_shm *tee_shm_get_from_id(struct tee_context *ctx, int id);
+
+/**
+ * tee_shm_is_secure() - Is shm referring to a secure buffer
+ * @shm:		Shared memory handle
+ * @returns true if shm refer to a secure buffer, else returns false
+ */
+bool tee_shm_is_secure(struct tee_shm *shm);
 
 struct tee_context *tee_client_open_context(struct tee_context *start,
 			int (*match)(struct tee_ioctl_version_data *,

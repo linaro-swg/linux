@@ -244,6 +244,11 @@ int tee_shm_va2pa(struct tee_shm *shm, void *va, phys_addr_t *pa)
 	if ((char *)va >= ((char *)shm->kaddr + shm->size))
 		return -EINVAL;
 
+	if (shm->flags == TEE_SHM_SECURE) {
+		pr_err("shm 'secure' don't request va2pa\n");
+		return -EINVAL;
+	}
+
 	return tee_shm_get_pa(
 			shm, (unsigned long)va - (unsigned long)shm->kaddr, pa);
 }
@@ -264,6 +269,11 @@ int tee_shm_pa2va(struct tee_shm *shm, phys_addr_t pa, void **va)
 	if (pa >= (shm->paddr + shm->size))
 		return -EINVAL;
 
+	if (shm->flags == TEE_SHM_SECURE) {
+		pr_err("shm 'secure' don't request pa2va\n");
+		return -EINVAL;
+	}
+
 	if (va) {
 		void *v = tee_shm_get_va(shm, pa - shm->paddr);
 
@@ -274,6 +284,12 @@ int tee_shm_pa2va(struct tee_shm *shm, phys_addr_t pa, void **va)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(tee_shm_pa2va);
+
+bool tee_shm_is_secure(struct tee_shm *shm)
+{
+	return (shm->flags == TEE_SHM_SECURE);
+}
+EXPORT_SYMBOL_GPL(tee_shm_is_secure);
 
 /**
  * tee_shm_get_va() - Get virtual address of a shared memory plus an offset
@@ -286,6 +302,12 @@ void *tee_shm_get_va(struct tee_shm *shm, size_t offs)
 {
 	if (offs >= shm->size)
 		return ERR_PTR(-EINVAL);
+
+	if (shm->flags == TEE_SHM_SECURE) {
+		pr_err("shm 'secure' don't ask for a kaddr\n");
+		return ERR_PTR(-EINVAL);
+	}
+
 	return (char *)shm->kaddr + offs;
 }
 EXPORT_SYMBOL_GPL(tee_shm_get_va);
@@ -302,6 +324,12 @@ int tee_shm_get_pa(struct tee_shm *shm, size_t offs, phys_addr_t *pa)
 {
 	if (offs >= shm->size)
 		return -EINVAL;
+
+	if (shm->flags == TEE_SHM_SECURE && !shm->kaddr) {
+		pr_err("shm 'secure' but no kaddr\n");
+		return -EINVAL;
+	}
+
 	if (pa)
 		*pa = shm->paddr + offs;
 	return 0;

@@ -16,6 +16,7 @@
 
 #include <linux/cdev.h>
 #include <linux/device.h>
+#include <linux/dma-buf.h>
 #include <linux/fs.h>
 #include <linux/idr.h>
 #include <linux/module.h>
@@ -146,6 +147,11 @@ static int tee_ioctl_shm_alloc(struct tee_context *ctx,
 	return ret;
 }
 
+struct dmabuf_ref {
+	struct dma_buf_attachment *attach;
+	struct sg_table *sgt;
+};
+
 static int params_from_user(struct tee_context *ctx, struct tee_param *params,
 			    size_t num_params,
 			    struct tee_ioctl_param __user *uparams)
@@ -193,12 +199,96 @@ static int params_from_user(struct tee_context *ctx, struct tee_param *params,
 			params[n].u.memref.size = ip.u.memref.size;
 			params[n].u.memref.shm = shm;
 			break;
+
+		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_SECURE:
+		{
+			/*
+			 * Memref is a dmabuf file handle.
+			 * Create a struct shm that reflects the buffer
+			 * referred by the dmabuf handle.
+			 *
+			 * By calling dma_buf_map_attachment(), and since
+			 * the buffer was allocated through SMAF, tee driver
+			 * notifies a "teeX" device access request to
+			 * buffer. SMAF will eventually invoke the SMAF TA to
+			 * grant TEE to access to memory reference.
+			 *
+			 * TEE driver releases memref resources once back
+			 * from the invocation.
+			 *
+			 * TODO: should SMAF request from "teeN" device
+			 * or from 'optee0' device?
+			 *
+			 * TODO:
+			 * Use a struct shm/field flags = DMA_BUF, not MAPPED.
+			 * This tell field 'kaddr' carries reference resources,
+			 * not the kenrel virtual address.
+			 */
+			struct dmabuf_ref *ref;
+
+			if ((int)ip.u.memref.shm_id < 0)
+				return -EINVAL;
+
+			shm = kzalloc(sizeof(*shm) + sizeof(*ref), GFP_KERNEL);
+			if (!shm)
+				return -ENOMEM;
+			ref = (struct dmabuf_ref *)(shm + 1);
+
+			shm->ctx = ctx;
+			shm->teedev = ctx->teedev;
+			shm->flags = TEE_SHM_SECURE;
+			shm->kaddr = (void *)ref;
+
+			params[n].u.memref.shm_offs = ip.u.memref.shm_offs;
+			params[n].u.memref.size = ip.u.memref.size;
+			params[n].u.memref.shm = shm;
+
+			shm->dmabuf = dma_buf_get((int)ip.u.memref.shm_id);
+			if (!shm->dmabuf)
+				return -EINVAL;
+
+			ref->attach = dma_buf_attach(shm->dmabuf,
+						     &shm->teedev->dev);
+			if (IS_ERR_OR_NULL(ref->attach))
+				return PTR_ERR(ref->attach);
+
+			ref->sgt = dma_buf_map_attachment(ref->attach,
+							  DMA_BIDIRECTIONAL);
+			if (IS_ERR_OR_NULL(ref->sgt))
+				return PTR_ERR(ref->sgt);
+			shm->paddr = sg_dma_address(ref->sgt->sgl);
+			shm->size = sg_dma_len(ref->sgt->sgl);
+			break;
+		}
 		default:
 			/* Unknown attribute */
 			return -EINVAL;
 		}
 	}
 	return 0;
+}
+
+static void put_secure_memref(struct tee_shm *shm)
+{
+	struct dmabuf_ref *ref;
+
+	if (!shm || shm->flags != TEE_SHM_SECURE ||
+	   !shm->dmabuf || !shm->kaddr) {
+		pr_err("puttings a nonsecure memref\n");
+		return;
+	}
+
+	ref = (struct dmabuf_ref *)shm->kaddr;
+	if (!IS_ERR_OR_NULL(ref->sgt))
+		dma_buf_unmap_attachment(ref->attach, ref->sgt,
+					 DMA_BIDIRECTIONAL);
+
+	if (!IS_ERR_OR_NULL(ref->attach))
+			dma_buf_detach(shm->dmabuf, ref->attach);
+
+	if (shm->dmabuf)
+		dma_buf_put(shm->dmabuf);
+	kfree(shm);
 }
 
 static int params_to_user(struct tee_ioctl_param __user *uparams,
@@ -218,6 +308,7 @@ static int params_to_user(struct tee_ioctl_param __user *uparams,
 			    put_user(p->u.value.c, &up->u.value.c))
 				return -EFAULT;
 			break;
+		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_SECURE:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_OUTPUT:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INOUT:
 			if (put_user((u64)p->u.memref.size, &up->u.memref.size))
@@ -229,7 +320,7 @@ static int params_to_user(struct tee_ioctl_param __user *uparams,
 	return 0;
 }
 
-static bool param_is_memref(struct tee_param *param)
+static bool param_is_shm_memref(struct tee_param *param)
 {
 	switch (param->attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK) {
 	case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT:
@@ -240,6 +331,16 @@ static bool param_is_memref(struct tee_param *param)
 		return false;
 	}
 }
+static bool param_is_secure_memref(struct tee_param *param)
+{
+	switch (param->attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK) {
+	case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_SECURE:
+		return true;
+	default:
+		return false;
+	}
+}
+
 
 static int tee_ioctl_open_session(struct tee_context *ctx,
 				  struct tee_ioctl_buf_data __user *ubuf)
@@ -305,9 +406,12 @@ out:
 	if (params) {
 		/* Decrease ref count for all valid shared memory pointers */
 		for (n = 0; n < arg.num_params; n++)
-			if (param_is_memref(params + n) &&
+			if (param_is_shm_memref(params + n) &&
 			    params[n].u.memref.shm)
 				tee_shm_put(params[n].u.memref.shm);
+			if (param_is_secure_memref(params + n) &&
+			    params[n].u.memref.shm)
+				put_secure_memref(params[n].u.memref.shm);
 		kfree(params);
 	}
 
@@ -367,9 +471,12 @@ out:
 	if (params) {
 		/* Decrease ref count for all valid shared memory pointers */
 		for (n = 0; n < arg.num_params; n++)
-			if (param_is_memref(params + n) &&
+			if (param_is_shm_memref(params + n) &&
 			    params[n].u.memref.shm)
 				tee_shm_put(params[n].u.memref.shm);
+			if (param_is_secure_memref(params + n) &&
+			    params[n].u.memref.shm)
+				put_secure_memref(params[n].u.memref.shm);
 		kfree(params);
 	}
 	return rc;

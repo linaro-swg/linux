@@ -64,11 +64,13 @@ int optee_from_msg_param(struct tee_param *params, size_t num_params,
 			p->u.value.b = mp->u.value.b;
 			p->u.value.c = mp->u.value.c;
 			break;
+		case OPTEE_MSG_ATTR_TYPE_TMEM_SECURE:
 		case OPTEE_MSG_ATTR_TYPE_TMEM_INPUT:
 		case OPTEE_MSG_ATTR_TYPE_TMEM_OUTPUT:
 		case OPTEE_MSG_ATTR_TYPE_TMEM_INOUT:
-			p->attr = TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT +
-				  attr - OPTEE_MSG_ATTR_TYPE_TMEM_INPUT;
+			p->attr = TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_SECURE +
+				  attr - OPTEE_MSG_ATTR_TYPE_TMEM_SECURE;
+
 			p->u.memref.size = mp->u.tmem.size;
 			shm = (struct tee_shm *)(unsigned long)
 				mp->u.tmem.shm_ref;
@@ -132,12 +134,14 @@ int optee_to_msg_param(struct optee_msg_param *msg_params, size_t num_params,
 			mp->u.value.b = p->u.value.b;
 			mp->u.value.c = p->u.value.c;
 			break;
+
+		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_SECURE:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_OUTPUT:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INOUT:
-			mp->attr = OPTEE_MSG_ATTR_TYPE_TMEM_INPUT +
+			mp->attr = OPTEE_MSG_ATTR_TYPE_TMEM_SECURE +
 				   p->attr -
-				   TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT;
+				   TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_SECURE;
 			mp->u.tmem.shm_ref = (unsigned long)p->u.memref.shm;
 			mp->u.tmem.size = p->u.memref.size;
 			if (!p->u.memref.shm) {
