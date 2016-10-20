@@ -46,7 +46,7 @@ static void tee_shm_release(struct tee_shm *shm)
 					 DMA_BIDIRECTIONAL);
 		dma_buf_detach(shm->dmabuf, ref->attach);
 		dma_buf_put(ref->dmabuf);
-	} else {
+	} else if (shm->flags & TEE_SHM_POOL) {
 		struct tee_shm_pool_mgr *poolm;
 
 		if (shm->flags & TEE_SHM_DMA_BUF)
@@ -55,6 +55,18 @@ static void tee_shm_release(struct tee_shm *shm)
 			poolm = teedev->pool->private_mgr;
 
 		poolm->ops->free(poolm, shm);
+	} else if (shm->flags & TEE_SHM_REGISTER) {
+		size_t n;
+		int rc = teedev->desc->ops->shm_unregister(shm->ctx, shm);
+
+		if (rc)
+			dev_err(teedev->dev.parent,
+				"unregister shm %p failed: %d", shm, rc);
+
+		for (n = 0; n < shm->num_pages; n++)
+			put_page(shm->pages[n]);
+
+		kfree(shm->pages);
 	}
 
 	kfree(shm);
@@ -95,6 +107,10 @@ static int tee_shm_op_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
 	struct tee_shm *shm = dmabuf->priv;
 	size_t size = vma->vm_end - vma->vm_start;
 
+	/* Refuse sharing shared memory provided by application */
+	if (shm->flags & TEE_SHM_REGISTER)
+		return -EINVAL;
+
 	return remap_pfn_range(vma, vma->vm_start, shm->paddr >> PAGE_SHIFT,
 			       size, vma->vm_page_prot);
 }
@@ -108,25 +124,19 @@ static struct dma_buf_ops tee_shm_dma_buf_ops = {
 	.mmap = tee_shm_op_mmap,
 };
 
-/**
- * tee_shm_alloc() - Allocate shared memory
- * @ctx:	Context that allocates the shared memory
- * @size:	Requested size of shared memory
- * @flags:	Flags setting properties for the requested shared memory.
- *
- * Memory allocated as global shared memory is automatically freed when the
- * TEE file pointer is closed. The @flags field uses the bits defined by
- * TEE_SHM_* in <linux/tee_drv.h>. TEE_SHM_MAPPED must currently always be
- * set. If TEE_SHM_DMA_BUF global shared memory will be allocated and
- * associated with a dma-buf handle, else driver private memory.
- */
-struct tee_shm *tee_shm_alloc(struct tee_context *ctx, size_t size, u32 flags)
+struct tee_shm *__tee_shm_alloc(struct tee_context *ctx,
+				struct tee_device *teedev,
+				size_t size, u32 flags)
 {
-	struct tee_device *teedev = ctx->teedev;
 	struct tee_shm_pool_mgr *poolm = NULL;
 	struct tee_shm *shm;
 	void *ret;
 	int rc;
+
+	if (ctx && ctx->teedev != teedev) {
+		dev_err(teedev->dev.parent, "ctx and teedev mismatch\n");
+		return ERR_PTR(-EINVAL);
+	}
 
 	if (!(flags & TEE_SHM_MAPPED)) {
 		dev_err(teedev->dev.parent,
@@ -154,7 +164,7 @@ struct tee_shm *tee_shm_alloc(struct tee_context *ctx, size_t size, u32 flags)
 		goto err_dev_put;
 	}
 
-	shm->flags = flags;
+	shm->flags = flags | TEE_SHM_POOL;
 	shm->teedev = teedev;
 	shm->ctx = ctx;
 	if (flags & TEE_SHM_DMA_BUF)
@@ -190,9 +200,12 @@ struct tee_shm *tee_shm_alloc(struct tee_context *ctx, size_t size, u32 flags)
 			goto err_rem;
 		}
 	}
-	mutex_lock(&teedev->mutex);
-	list_add_tail(&shm->link, &ctx->list_shm);
-	mutex_unlock(&teedev->mutex);
+
+	if (ctx) {
+		mutex_lock(&teedev->mutex);
+		list_add_tail(&shm->link, &ctx->list_shm);
+		mutex_unlock(&teedev->mutex);
+	}
 
 	return shm;
 err_rem:
@@ -207,7 +220,137 @@ err_dev_put:
 	tee_device_put(teedev);
 	return ret;
 }
+/**
+ * tee_shm_alloc() - Allocate shared memory
+ * @ctx:	Context that allocates the shared memory
+ * @size:	Requested size of shared memory
+ * @flags:	Flags setting properties for the requested shared memory.
+ *
+ * Memory allocated as global shared memory is automatically freed when the
+ * TEE file pointer is closed. The @flags field uses the bits defined by
+ * TEE_SHM_* in <linux/tee_drv.h>. TEE_SHM_MAPPED must currently always be
+ * set. If TEE_SHM_DMA_BUF global shared memory will be allocated and
+ * associated with a dma-buf handle, else driver private memory.
+ */
+struct tee_shm *tee_shm_alloc(struct tee_context *ctx, size_t size, u32 flags)
+{
+	return __tee_shm_alloc(ctx, ctx->teedev, size, flags);
+}
 EXPORT_SYMBOL_GPL(tee_shm_alloc);
+
+struct tee_shm *tee_shm_priv_alloc(struct tee_device *teedev, size_t size)
+{
+	return __tee_shm_alloc(NULL, teedev, size, TEE_SHM_MAPPED);
+}
+EXPORT_SYMBOL_GPL(tee_shm_priv_alloc);
+
+struct tee_shm *tee_shm_register(struct tee_context *ctx, unsigned long addr,
+				 size_t length, u32 flags)
+{
+	struct tee_device *teedev = ctx->teedev;
+	const u32 req_flags = TEE_SHM_DMA_BUF | TEE_SHM_USER_MAPPED;
+	struct tee_shm *shm;
+	void *ret;
+	int rc;
+	int num_pages;
+	unsigned long start;
+
+	if (flags != req_flags) {
+		dev_err(teedev->dev.parent, "invliad shm flags %#x", flags);
+		return ERR_PTR(-EINVAL);
+	}
+
+	if (!tee_device_get(teedev))
+		return ERR_PTR(-EINVAL);
+
+	if (!teedev->desc->ops->shm_register ||
+	    !teedev->desc->ops->shm_unregister) {
+		dev_err(teedev->dev.parent,
+			"register shared memory unspported by device");
+		tee_device_put(teedev);
+		return ERR_PTR(-EINVAL);
+	}
+
+	shm = kzalloc(sizeof(*shm), GFP_KERNEL);
+	if (!shm) {
+		ret = ERR_PTR(-ENOMEM);
+		goto err;
+	}
+
+	shm->flags = flags | TEE_SHM_REGISTER;
+	shm->teedev = teedev;
+	shm->ctx = ctx;
+	shm->id = -1;
+	start = rounddown(addr, PAGE_SIZE);
+	shm->offset = addr - start;
+	shm->size = length;
+	num_pages = (roundup(addr + length, PAGE_SIZE) - start) / PAGE_SIZE;
+	shm->pages = kcalloc(num_pages, sizeof(struct page), GFP_KERNEL);
+	if (!shm->pages) {
+		ret = ERR_PTR(-ENOMEM);
+		goto err;
+	}
+
+	rc = get_user_pages_fast(start, num_pages, 1, shm->pages);
+	if (rc > 0)
+		shm->num_pages = rc;
+	if (rc != num_pages) {
+		if (rc > 0)
+			rc = -ENOMEM;
+		ret = ERR_PTR(rc);
+		goto err;
+	}
+
+	mutex_lock(&teedev->mutex);
+	shm->id = idr_alloc(&teedev->idr, shm, 1, 0, GFP_KERNEL);
+	mutex_unlock(&teedev->mutex);
+
+	rc = teedev->desc->ops->shm_register(ctx, shm, shm->pages,
+					     shm->num_pages);
+	if (rc) {
+		ret = ERR_PTR(rc);
+		goto err;
+	}
+
+	if (flags & TEE_SHM_DMA_BUF) {
+		DEFINE_DMA_BUF_EXPORT_INFO(exp_info);
+
+		exp_info.ops = &tee_shm_dma_buf_ops;
+		exp_info.size = shm->size;
+		exp_info.flags = O_RDWR;
+		exp_info.priv = shm;
+
+		shm->dmabuf = dma_buf_export(&exp_info);
+		if (IS_ERR(shm->dmabuf)) {
+			ret = ERR_CAST(shm->dmabuf);
+			teedev->desc->ops->shm_unregister(ctx, shm);
+			goto err;
+		}
+	}
+
+	mutex_lock(&teedev->mutex);
+	list_add_tail(&shm->link, &ctx->list_shm);
+	mutex_unlock(&teedev->mutex);
+
+	return shm;
+err:
+	if (shm) {
+		size_t n;
+
+		if (shm->id >= 0) {
+			mutex_lock(&teedev->mutex);
+			idr_remove(&teedev->idr, shm->id);
+			mutex_unlock(&teedev->mutex);
+		}
+		for (n = 0; n < shm->num_pages; n++)
+			put_page(shm->pages[n]);
+		kfree(shm->pages);
+	}
+	kfree(shm);
+	tee_device_put(teedev);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(tee_shm_register);
 
 struct tee_shm *tee_shm_register_fd(struct tee_context *ctx, int fd)
 {
@@ -452,6 +595,12 @@ struct tee_shm *tee_shm_get_from_id(struct tee_context *ctx, int id)
 	return shm;
 }
 EXPORT_SYMBOL_GPL(tee_shm_get_from_id);
+
+bool tee_shm_is_registered(struct tee_shm *shm)
+{
+	return shm && (shm->flags & TEE_SHM_REGISTER);
+}
+EXPORT_SYMBOL_GPL(tee_shm_is_registered);
 
 /**
  * tee_shm_get_id() - Get id of a shared memory object
