@@ -21,6 +21,8 @@
 #include <linux/uaccess.h>
 #include "optee_private.h"
 #include "optee_smc.h"
+#include "optee_bench.h"
+
 
 struct optee_call_waiter {
 	struct list_head list_node;
@@ -331,6 +333,9 @@ int optee_invoke_func(struct tee_context *ctx, struct tee_ioctl_invoke_arg *arg,
 	rc = optee_to_msg_param(msg_param, arg->num_params, param);
 	if (rc)
 		goto out;
+
+	TEE_BENCH_ADD_TS(tee_shm_get_va(param[TEE_BENCH_DEF_PARAM].u.memref.shm,
+							0), TEE_BENCH_KMOD);
 
 	if (optee_do_call_with_arg(ctx, msg_parg)) {
 		msg_arg->ret = TEEC_ERROR_COMMUNICATION;

@@ -29,6 +29,13 @@
 
 #define OPTEE_SHM_NUM_PRIV_PAGES	1
 
+/*
+ * Specific defines for ARM performance timers
+ */
+#define PERF_DEF_OPTS (1 | 16)
+#define PERF_OPT_RESET_CYCLES (2 | 4)
+#define PERF_OPT_DIV64 (8)
+
 /**
  * optee_from_msg_param() - convert from OPTEE_MSG parameters to
  *			    struct tee_param
@@ -570,9 +577,24 @@ static struct platform_driver optee_driver = {
 	.remove = optee_remove,
 };
 
+static void enable_cpu_perf_counters(void* data)
+{
+#if defined(__ARM_ARCH_7A__)
+	/* Enable user-mode access to counters */
+	asm volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(1));
+	/* Program PMU and enable all counters */
+	asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(PERF_DEF_OPTS));
+	asm volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x8000000f));
+#endif
+}
+
 static int __init optee_driver_init(void)
 {
 	struct device_node *node;
+
+#ifdef CONFIG_OPTEE_BENCHMARK
+	on_each_cpu(enable_cpu_perf_counters, NULL, 1);
+#endif
 
 	/*
 	 * Preferred path is /firmware/optee, but it's the matching that
