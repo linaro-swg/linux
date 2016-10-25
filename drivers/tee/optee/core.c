@@ -26,6 +26,7 @@
 #include <linux/tee_drv.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#include "optee_bench.h"
 #include "optee_private.h"
 #include "optee_smc.h"
 
@@ -598,6 +599,8 @@ static int __init optee_driver_init(void)
 
 	optee_svc = optee;
 
+	optee_bm_enable();
+
 	return 0;
 }
 module_init(optee_driver_init);
@@ -609,6 +612,8 @@ static void __exit optee_driver_exit(void)
 	optee_svc = NULL;
 	if (optee)
 		optee_remove(optee);
+
+	optee_bm_disable();
 }
 module_exit(optee_driver_exit);
 
