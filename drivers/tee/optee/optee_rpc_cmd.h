@@ -79,6 +79,15 @@
 #define OPTEE_RPC_CMD_SHM_FREE		7
 
 /*
+ * Register timestamp buffer
+ *
+ * [in] param[0].u.value.a	Subcommand (register buffer, unregister buffer)
+ * [in] param[0].u.value.b	Physical address of timestamp buffer
+ * [in] param[0].u.value.c	Size of buffer
+ */
+#define OPTEE_RPC_CMD_BENCH_REG		20
+
+/*
  * Issue master requests (read and write operations) to an I2C chip.
  *
  * [in]     value[0].a	    Transfer mode (OPTEE_RPC_I2C_TRANSFER_*)
