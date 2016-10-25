@@ -16,6 +16,7 @@
 #include "optee_smc.h"
 #define CREATE_TRACE_POINTS
 #include "optee_trace.h"
+#include "optee_bench.h"
 
 struct optee_call_waiter {
 	struct list_head list_node;
@@ -141,10 +142,14 @@ u32 optee_do_call_with_arg(struct tee_context *ctx, phys_addr_t parg)
 		struct arm_smccc_res res;
 
 		trace_optee_invoke_fn_begin(&param);
+		optee_bm_timestamp();
+
 		optee->invoke_fn(param.a0, param.a1, param.a2, param.a3,
 				 param.a4, param.a5, param.a6, param.a7,
 				 &res);
 		trace_optee_invoke_fn_end(&param, &res);
+
+		optee_bm_timestamp();
 
 		if (res.a0 == OPTEE_SMC_RETURN_ETHREAD_LIMIT) {
 			/*
