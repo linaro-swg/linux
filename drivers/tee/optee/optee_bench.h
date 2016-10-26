@@ -58,7 +58,9 @@ struct tee_ringbuf {
 #define TEE_BENCH_ADD_TS(ringbuf_raw, source) \
 	do { \
 		struct tee_ringbuf *rng = (struct tee_ringbuf *)ringbuf_raw; \
-		u64 ts_i = (rng->tm_ind)++; \
+		u64 ts_i; \
+		if (rng->tm_ind >= TEE_BENCH_MAX_STAMPS) rng->tm_ind = 0; \
+		ts_i = rng->tm_ind++; \
 		TEE_BENCH_TSC(rng->stamps[ts_i].cnt); \
 		TEE_BENCH_PC(rng->stamps[ts_i].addr); \
 		rng->stamps[ts_i].src = source; \
