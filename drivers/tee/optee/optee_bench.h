@@ -12,17 +12,17 @@
  *
  */
 
-#ifndef OPTEE_BENCH_H
-#define OPTEE_BENCH_H
+#ifndef _OPTEE_BENCH_H
+#define _OPTEE_BENCH_H
 
 /* max amount of timestamps */
-#define TEE_BENCH_MAX_STAMPS	100
-#define TEE_BENCH_RB_SIZE sizeof(struct tee_ringbuf) \
-		+ sizeof(struct tee_time_st) * TEE_BENCH_MAX_STAMPS
-#define TEE_BENCH_DEF_PARAM		3
+#define OPTEE_BENCH_MAX_STAMPS	100
+#define OPTEE_BENCH_RB_SIZE sizeof(struct tee_ringbuf) \
+		+ sizeof(struct tee_time_st) * OPTEE_BENCH_MAX_STAMPS
+#define OPTEE_BENCH_DEF_PARAM		3
 
 /* OP-TEE susbsystems ids */
-#define TEE_BENCH_KMOD		0x00000002
+#define OPTEE_BENCH_KMOD		0x00000002
 
 
 /* storing timestamps */
@@ -43,34 +43,34 @@ struct tee_ringbuf {
 #ifdef CONFIG_OPTEE_BENCHMARK
 
 /* Program counter */
-#define TEE_BENCH_PC(src) \
+#define OPTEE_BENCH_PC(src) \
 	asm volatile("mov %0, r15": "=r"(src));
 
 /* Cycle counter */
 #if defined(__ARM_ARCH_7A__)
-#define TEE_BENCH_TSC(src) \
+#define OPTEE_BENCH_TSC(src) \
 	asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(src));
 #else
 #error Unsupported architecture!
 #endif /* defined(__ARM_ARCH_7A__) */
 
 /* Adding timestamp */
-#define TEE_BENCH_ADD_TS(ringbuf_raw, source) \
+#define OPTEE_BENCH_ADD_TS(ringbuf_raw, source) \
 	do { \
 		struct tee_ringbuf *rng = (struct tee_ringbuf *)ringbuf_raw; \
 		u64 ts_i; \
-		if (rng->tm_ind >= TEE_BENCH_MAX_STAMPS) rng->tm_ind = 0; \
+		if (rng->tm_ind >= OPTEE_BENCH_MAX_STAMPS) rng->tm_ind = 0; \
 		ts_i = rng->tm_ind++; \
-		TEE_BENCH_TSC(rng->stamps[ts_i].cnt); \
-		TEE_BENCH_PC(rng->stamps[ts_i].addr); \
+		OPTEE_BENCH_TSC(rng->stamps[ts_i].cnt); \
+		OPTEE_BENCH_PC(rng->stamps[ts_i].addr); \
 		rng->stamps[ts_i].src = source; \
 	} while (0)
 #else /* CONFIG_OPTEE_BENCHMARK */
 
-#define TEE_BENCH_ADD_TS(ringbuf_raw_, source) \
+#define OPTEE_BENCH_ADD_TS(ringbuf_raw_, source) \
 	do { \
 		; \
 	} while (0)
 
 #endif /* CONFIG_OPTEE_BENCHMARK */
-#endif /* OPTEE_BENCH_H */
+#endif /* _OPTEE_BENCH_H */

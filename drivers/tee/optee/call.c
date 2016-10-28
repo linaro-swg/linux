@@ -334,8 +334,9 @@ int optee_invoke_func(struct tee_context *ctx, struct tee_ioctl_invoke_arg *arg,
 	if (rc)
 		goto out;
 
-	TEE_BENCH_ADD_TS(tee_shm_get_va(param[TEE_BENCH_DEF_PARAM].u.memref.shm,
-							0), TEE_BENCH_KMOD);
+	OPTEE_BENCH_ADD_TS(tee_shm_get_va(
+							param[OPTEE_BENCH_DEF_PARAM].u.memref.shm,
+							0), OPTEE_BENCH_KMOD);
 
 	if (optee_do_call_with_arg(ctx, msg_parg)) {
 		msg_arg->ret = TEEC_ERROR_COMMUNICATION;
