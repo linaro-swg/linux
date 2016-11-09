@@ -16,10 +16,10 @@
 #define _OPTEE_BENCH_H
 
 /* max amount of timestamps */
-#define OPTEE_BENCH_MAX_STAMPS	100
+#define OPTEE_BENCH_MAX_STAMPS	10
 #define OPTEE_BENCH_RB_SIZE sizeof(struct tee_ringbuf) \
 		+ sizeof(struct tee_time_st) * OPTEE_BENCH_MAX_STAMPS
-#define OPTEE_BENCH_DEF_PARAM		3
+#define OPTEE_BENCH_DEF_PARAM		4
 
 /* OP-TEE susbsystems ids */
 #define OPTEE_BENCH_KMOD		0x00000002
@@ -59,6 +59,7 @@ struct tee_ringbuf {
 	do { \
 		struct tee_ringbuf *rng = (struct tee_ringbuf *)ringbuf_raw; \
 		u64 ts_i; \
+		if(!rng) break; \
 		if (rng->tm_ind >= OPTEE_BENCH_MAX_STAMPS) rng->tm_ind = 0; \
 		ts_i = rng->tm_ind++; \
 		OPTEE_BENCH_TSC(rng->stamps[ts_i].cnt); \
