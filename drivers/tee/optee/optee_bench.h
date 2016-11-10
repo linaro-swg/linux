@@ -17,8 +17,8 @@
 
 /* max amount of timestamps */
 #define OPTEE_BENCH_MAX_STAMPS	10
-#define OPTEE_BENCH_RB_SIZE sizeof(struct tee_ringbuf) \
-		+ sizeof(struct tee_time_st) * OPTEE_BENCH_MAX_STAMPS
+#define OPTEE_BENCH_RB_SIZE (sizeof(struct tee_ringbuf) \
+		+ sizeof(struct tee_time_st) * OPTEE_BENCH_MAX_STAMPS)
 #define OPTEE_BENCH_DEF_PARAM		4
 
 /* OP-TEE susbsystems ids */
@@ -27,9 +27,9 @@
 
 /* storing timestamps */
 struct tee_time_st {
-	u64 cnt;		/* stores value from CNTPCT register */
-	u64 addr;		/* stores value from program counter register */
-	u64 src; 			/* OP-TEE subsystem id */
+	u64 cnt;	/* stores value from CNTPCT register */
+	u64 addr;	/* stores value from program counter register */
+	u64 src;	/* OP-TEE subsystem id */
 };
 
 /* memory layout for shared memory, where timestamps will be stored */
@@ -42,36 +42,47 @@ struct tee_ringbuf {
 
 #ifdef CONFIG_OPTEE_BENCHMARK
 
-/* Program counter */
-#define OPTEE_BENCH_PC(src) \
-	asm volatile("mov %0, r15": "=r"(src));
+/* Reading program counter */
+static inline __attribute__((always_inline)) uintptr_t read_pc(void)
+{
+	uintptr_t pc;
+
+	asm volatile("mov %0, r15" : "=r"(pc));
+	return pc;
+}
 
 /* Cycle counter */
+static inline __attribute__((always_inline)) u64 read_ccounter(void)
+{
+	u64 ccounter = 0;
 #if defined(__ARM_ARCH_7A__)
-#define OPTEE_BENCH_TSC(src) \
-	asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(src));
-#else
-#error Unsupported architecture!
+	asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(ccounter));
 #endif /* defined(__ARM_ARCH_7A__) */
+	return ccounter;
+}
 
-/* Adding timestamp */
-#define OPTEE_BENCH_ADD_TS(ringbuf_raw, source) \
-	do { \
-		struct tee_ringbuf *rng = (struct tee_ringbuf *)ringbuf_raw; \
-		u64 ts_i; \
-		if(!rng) break; \
-		if (rng->tm_ind >= OPTEE_BENCH_MAX_STAMPS) rng->tm_ind = 0; \
-		ts_i = rng->tm_ind++; \
-		OPTEE_BENCH_TSC(rng->stamps[ts_i].cnt); \
-		OPTEE_BENCH_PC(rng->stamps[ts_i].addr); \
-		rng->stamps[ts_i].src = source; \
-	} while (0)
+/* Adding timestamp to ringbuffer */
+static inline __attribute__((always_inline)) void optee_add_timestamp
+				(void *ringbuf_raw, u32 source)
+{
+	struct tee_ringbuf *ringb = (struct tee_ringbuf *)ringbuf_raw;
+	u64 ts_i;
+
+	if (!ringb)
+		return;
+	if (ringb->tm_ind >= OPTEE_BENCH_MAX_STAMPS)
+		ringb->tm_ind = 0;
+
+	ts_i = ringb->tm_ind++;
+	ringb->stamps[ts_i].cnt = read_ccounter();
+	ringb->stamps[ts_i].addr = read_pc();
+	ringb->stamps[ts_i].src = source;
+}
 #else /* CONFIG_OPTEE_BENCHMARK */
-
-#define OPTEE_BENCH_ADD_TS(ringbuf_raw_, source) \
-	do { \
-		; \
-	} while (0)
-
+static inline __attribute__((always_inline)) void optee_add_timestamp
+				(void *ringbuf_raw, u32 source)
+{
+		;
+}
 #endif /* CONFIG_OPTEE_BENCHMARK */
 #endif /* _OPTEE_BENCH_H */
