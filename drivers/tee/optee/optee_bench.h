@@ -52,7 +52,7 @@ static inline __attribute__((always_inline)) uintptr_t read_pc(void)
 }
 
 /* Cycle counter */
-static inline __attribute__((always_inline)) u64 read_ccounter(void)
+static inline u64 read_ccounter(void)
 {
 	u64 ccounter = 0;
 #if defined(__ARM_ARCH_7A__)
@@ -79,7 +79,7 @@ static inline __attribute__((always_inline)) void optee_add_timestamp
 	ringb->stamps[ts_i].src = source;
 }
 #else /* CONFIG_OPTEE_BENCHMARK */
-static inline __attribute__((always_inline)) void optee_add_timestamp
+static inline void optee_add_timestamp
 				(void *ringbuf_raw, u32 source)
 {
 		;
