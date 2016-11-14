@@ -32,7 +32,11 @@
 /*
  * Specific defines for ARM performance timers
  */
-#define OPTEE_BENCH_DEF_OPTS (1 | 16)
+#define OPTEE_BENCH_DEF_OPTS	(1 | 16)
+#define OPTEE_BENCH_DEF_OVER	0x8000000f
+/* enable 64 divider for CCNT */
+#define OPTEE_BENCH_DIVIDER		(OPTEE_BENCH_DEF_OPTS | 8)
+
 
 /**
  * optee_from_msg_param() - convert from OPTEE_MSG parameters to
@@ -575,17 +579,29 @@ static struct platform_driver optee_driver = {
 	.remove = optee_remove,
 };
 
-static void enable_cpu_perf_counters(void* data)
+static void enable_cpu_perf_counters(void *data)
 {
 #if defined(__ARM_ARCH_7A__)
-	/* Enable user-mode access to counters */
+	/* Enable EL0 access to PMU counters */
 	asm volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(1));
-	/* Program PMU and enable all counters */
+	/* Enable all PMU counters */
 	asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(OPTEE_BENCH_DEF_OPTS));
-	asm volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(0x8000000f));
+	/* Disable counter overflow interrupts */
+	asm volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(OPTEE_BENCH_DEF_OVER));
 #endif
 }
 
+static void disable_cpu_perf_counters(void *data)
+{
+#if defined(__ARM_ARCH_7A__)
+	/* Disable all PMU counters */
+	asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(0));
+	/* Enable counter overflow interrupts */
+	asm volatile("mcr p15, 0, %0, c9, c12, 2" :: "r"(OPTEE_BENCH_DEF_OVER));
+	/* Disable EL0 access to PMU counters. */
+	asm volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(0));
+#endif
+}
 static int __init optee_driver_init(void)
 {
 	struct device_node *node;
@@ -607,6 +623,9 @@ module_init(optee_driver_init);
 
 static void __exit optee_driver_exit(void)
 {
+#ifdef CONFIG_OPTEE_BENCHMARK
+	on_each_cpu(disable_cpu_perf_counters, NULL, 1);
+#endif
 	platform_driver_unregister(&optee_driver);
 }
 module_exit(optee_driver_exit);

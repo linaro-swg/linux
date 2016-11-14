@@ -22,7 +22,7 @@
 #define OPTEE_BENCH_DEF_PARAM		4
 
 /* OP-TEE susbsystems ids */
-#define OPTEE_BENCH_KMOD		0x00000002
+#define OPTEE_BENCH_KMOD	0x20000000
 
 
 /* storing timestamps */
