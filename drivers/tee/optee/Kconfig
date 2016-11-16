@@ -7,7 +7,7 @@ config OPTEE
 	  driver.
 
 config OPTEE_BENCHMARK
-	tristate "OP-TEE Benchmarking"
+	bool "OP-TEE Benchmarking"
 	depends on OPTEE
 	help
 	  This enables benchmarking feature in the OP-TEE Trusted
