@@ -15,9 +15,11 @@
 #ifndef _OPTEE_BENCH_H
 #define _OPTEE_BENCH_H
 
+#include <linux/tee_drv.h>
+
 /* max amount of timestamps */
 #define OPTEE_BENCH_MAX_STAMPS	10
-#define OPTEE_BENCH_RB_SIZE (sizeof(struct tee_ringbuf) \
+#define OPTEE_BENCH_RB_SIZE (sizeof(struct tee_time_buf) \
 		+ sizeof(struct tee_time_st) * OPTEE_BENCH_MAX_STAMPS)
 #define OPTEE_BENCH_DEF_PARAM		4
 
@@ -33,21 +35,21 @@ struct tee_time_st {
 };
 
 /* memory layout for shared memory, where timestamps will be stored */
-struct tee_ringbuf {
+struct tee_time_buf {
 	u64 tm_ind;		/* index of the last timestamp in stamps[] */
 	struct tee_time_st stamps[];
 };
 
-
-
 #ifdef CONFIG_OPTEE_BENCHMARK
-
 /* Reading program counter */
 static inline __attribute__((always_inline)) uintptr_t read_pc(void)
 {
-	uintptr_t pc;
-
+	uintptr_t pc = NULL;
+#ifdef __aarch64__
+	asm volatile ("adr %0, ." : "=r" (pc));
+#else
 	asm volatile("mov %0, r15" : "=r"(pc));
+#endif
 	return pc;
 }
 
@@ -55,32 +57,35 @@ static inline __attribute__((always_inline)) uintptr_t read_pc(void)
 static inline u64 read_ccounter(void)
 {
 	u64 ccounter = 0;
-#if defined(__ARM_ARCH_7A__)
+
 	asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(ccounter));
-#endif /* defined(__ARM_ARCH_7A__) */
 	return ccounter;
 }
 
-/* Adding timestamp to ringbuffer */
-static inline __attribute__((always_inline)) void optee_add_timestamp
-				(void *ringbuf_raw, u32 source)
+/* Adding timestamp to buffer */
+static inline __attribute__((always_inline)) void bm_timestamp
+				(struct tee_param *param, u32 source)
 {
-	struct tee_ringbuf *ringb = (struct tee_ringbuf *)ringbuf_raw;
+	struct tee_time_buf *timeb = NULL;
 	u64 ts_i;
 
-	if (!ringb)
+	if (!param || !param[OPTEE_BENCH_DEF_PARAM].u.memref.shm)
 		return;
-	if (ringb->tm_ind >= OPTEE_BENCH_MAX_STAMPS)
-		ringb->tm_ind = 0;
 
-	ts_i = ringb->tm_ind++;
-	ringb->stamps[ts_i].cnt = read_ccounter();
-	ringb->stamps[ts_i].addr = read_pc();
-	ringb->stamps[ts_i].src = source;
+	timeb = (struct tee_time_buf *) tee_shm_get_va(
+				param[OPTEE_BENCH_DEF_PARAM].u.memref.shm, 0);
+	if (!timeb)
+		return;
+	if (timeb->tm_ind >= OPTEE_BENCH_MAX_STAMPS)
+		return;
+
+	ts_i = timeb->tm_ind++;
+	timeb->stamps[ts_i].cnt = read_ccounter();
+	timeb->stamps[ts_i].addr = read_pc();
+	timeb->stamps[ts_i].src = source;
 }
 #else /* CONFIG_OPTEE_BENCHMARK */
-static inline void optee_add_timestamp
-				(void *ringbuf_raw, u32 source)
+static inline void bm_timestamp(struct tee_param *param, u32 source)
 {
 		;
 }
