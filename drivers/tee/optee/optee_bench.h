@@ -26,7 +26,6 @@
 /* OP-TEE susbsystems ids */
 #define OPTEE_BENCH_KMOD	0x20000000
 
-
 /* storing timestamps */
 struct tee_time_st {
 	u64 cnt;	/* stores value from CNTPCT register */
@@ -39,6 +38,42 @@ struct tee_time_buf {
 	u64 tm_ind; /* index of the next unfilled timestamp in stamps[] */
 	struct tee_time_st stamps[];
 };
+
+
+/*
+ * Specific defines for ARM performance timers
+ */
+/* aarch32 */
+#define OPTEE_BENCH_DEF_OPTS			(1 | 16)
+#define OPTEE_BENCH_DEF_OVER			0x8000000f
+/* enable 64 divider for CCNT */
+#define OPTEE_BENCH_DIVIDER_OPTS		(OPTEE_BENCH_DEF_OPTS | 8)
+
+/* aarch64 */
+#define OPTEE_BENCH_ARMV8_PMCR_MASK	0x3f
+#define OPTEE_BENCH_ARMV8_PMCR_E	(1 << 0) /* Enable all counters */
+#define OPTEE_BENCH_ARMV8_PMCR_P	(1 << 1) /* Reset all counters */
+#define OPTEE_BENCH_ARMV8_PMCR_C	(1 << 2) /* Cycle counter reset */
+#define OPTEE_BENCH_ARMV8_PMCR_D    (1 << 3) /* 64 divider */
+
+#define OPTEE_BENCH_ARMV8_PMUSERENR_EL0	(1 << 0) /* EL0 access enable */
+#define OPTEE_BENCH_ARMV8_PMUSERENR_CR	(1 << 2) /* CCNT read enable */
+
+#ifdef __aarch64__
+static inline u32 armv8pmu_pmcr_read(void)
+{
+		u64 val = 0;
+
+		asm volatile("mrs %0, pmcr_el0" : "=r"(val));
+		return (u32)val;
+}
+
+static inline void armv8pmu_pmcr_write(u32 val)
+{
+		val &= OPTEE_BENCH_ARMV8_PMCR_MASK;
+		asm volatile("msr pmcr_el0, %0" :: "r"((u64)val));
+}
+#endif
 
 #ifdef CONFIG_OPTEE_BENCHMARK
 /* Reading program counter */
@@ -57,8 +92,11 @@ static inline __attribute__((always_inline)) uintptr_t read_pc(void)
 static inline u64 read_ccounter(void)
 {
 	u64 ccounter = 0;
-
+#ifdef __aarch64__
+	asm volatile("mrs %0, PMCCNTR_EL0" : "=r"(ccounter));
+#else
 	asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(ccounter));
+#endif
 	return ccounter;
 }
 

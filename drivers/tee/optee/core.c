@@ -22,21 +22,13 @@
 #include <linux/tee_drv.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#include "optee_bench.h"
 #include "optee_private.h"
 #include "optee_smc.h"
 
 #define DRIVER_NAME "optee"
 
 #define OPTEE_SHM_NUM_PRIV_PAGES	1
-
-/*
- * Specific defines for ARM performance timers
- */
-#define OPTEE_BENCH_DEF_OPTS	(1 | 16)
-#define OPTEE_BENCH_DEF_OVER	0x8000000f
-/* enable 64 divider for CCNT */
-#define OPTEE_BENCH_DIVIDER		(OPTEE_BENCH_DEF_OPTS | 8)
-
 
 /**
  * optee_from_msg_param() - convert from OPTEE_MSG parameters to
@@ -581,11 +573,24 @@ static struct platform_driver optee_driver = {
 
 static void enable_cpu_perf_counters(void *data)
 {
-#if defined(__ARM_ARCH_7A__)
+#ifdef __aarch64__
+	/* Enable EL0 access to PMU counters. */
+	asm volatile("msr pmuserenr_el0, %0" :: "r"((u64)
+			OPTEE_BENCH_ARMV8_PMUSERENR_EL0 |
+			OPTEE_BENCH_ARMV8_PMUSERENR_CR));
+	/* Enable PMU counters */
+	armv8pmu_pmcr_write(OPTEE_BENCH_ARMV8_PMCR_P |
+					OPTEE_BENCH_ARMV8_PMCR_C |
+					OPTEE_BENCH_ARMV8_PMCR_D);
+	asm volatile("msr pmcntenset_el0, %0" :: "r"((u64)(1 << 31)));
+	armv8pmu_pmcr_write(armv8pmu_pmcr_read() |
+					OPTEE_BENCH_ARMV8_PMCR_E);
+#else
 	/* Enable EL0 access to PMU counters */
 	asm volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(1));
 	/* Enable all PMU counters */
-	asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(OPTEE_BENCH_DEF_OPTS));
+	asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"
+					(OPTEE_BENCH_DIVIDER_OPTS));
 	/* Disable counter overflow interrupts */
 	asm volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(OPTEE_BENCH_DEF_OVER));
 #endif
@@ -593,7 +598,12 @@ static void enable_cpu_perf_counters(void *data)
 
 static void disable_cpu_perf_counters(void *data)
 {
-#if defined(__ARM_ARCH_7A__)
+#ifdef __aarch64__
+	/* Disable EL0 access */
+	asm volatile("msr pmuserenr_el0, %0" :: "r"((u64)0));
+	/* Disable PMU counters */
+	armv8pmu_pmcr_write(armv8pmu_pmcr_read() | ~OPTEE_BENCH_ARMV8_PMCR_E);
+#else
 	/* Disable all PMU counters */
 	asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(0));
 	/* Enable counter overflow interrupts */
