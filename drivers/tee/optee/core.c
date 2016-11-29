@@ -22,6 +22,7 @@
 #include <linux/tee_drv.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
+#include "optee_bench.h"
 #include "optee_private.h"
 #include "optee_smc.h"
 
@@ -570,9 +571,54 @@ static struct platform_driver optee_driver = {
 	.remove = optee_remove,
 };
 
+static void enable_cpu_perf_counters(void *data)
+{
+#ifdef __aarch64__
+	/* Enable EL0 access to PMU counters. */
+	asm volatile("msr pmuserenr_el0, %0" :: "r"((u64)
+			OPTEE_BENCH_ARMV8_PMUSERENR_EL0 |
+			OPTEE_BENCH_ARMV8_PMUSERENR_CR));
+	/* Enable PMU counters */
+	armv8pmu_pmcr_write(OPTEE_BENCH_ARMV8_PMCR_P |
+					OPTEE_BENCH_ARMV8_PMCR_C |
+					OPTEE_BENCH_ARMV8_PMCR_D);
+	asm volatile("msr pmcntenset_el0, %0" :: "r"((u64)(1 << 31)));
+	armv8pmu_pmcr_write(armv8pmu_pmcr_read() |
+					OPTEE_BENCH_ARMV8_PMCR_E);
+#else
+	/* Enable EL0 access to PMU counters */
+	asm volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(1));
+	/* Enable all PMU counters */
+	asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"
+					(OPTEE_BENCH_DIVIDER_OPTS));
+	/* Disable counter overflow interrupts */
+	asm volatile("mcr p15, 0, %0, c9, c12, 1" :: "r"(OPTEE_BENCH_DEF_OVER));
+#endif
+}
+
+static void disable_cpu_perf_counters(void *data)
+{
+#ifdef __aarch64__
+	/* Disable EL0 access */
+	asm volatile("msr pmuserenr_el0, %0" :: "r"((u64)0));
+	/* Disable PMU counters */
+	armv8pmu_pmcr_write(armv8pmu_pmcr_read() | ~OPTEE_BENCH_ARMV8_PMCR_E);
+#else
+	/* Disable all PMU counters */
+	asm volatile("mcr p15, 0, %0, c9, c12, 0" :: "r"(0));
+	/* Enable counter overflow interrupts */
+	asm volatile("mcr p15, 0, %0, c9, c12, 2" :: "r"(OPTEE_BENCH_DEF_OVER));
+	/* Disable EL0 access to PMU counters. */
+	asm volatile("mcr p15, 0, %0, c9, c14, 0" :: "r"(0));
+#endif
+}
 static int __init optee_driver_init(void)
 {
 	struct device_node *node;
+
+#ifdef CONFIG_OPTEE_BENCHMARK
+	on_each_cpu(enable_cpu_perf_counters, NULL, 1);
+#endif
 
 	/*
 	 * Preferred path is /firmware/optee, but it's the matching that
@@ -587,6 +633,9 @@ module_init(optee_driver_init);
 
 static void __exit optee_driver_exit(void)
 {
+#ifdef CONFIG_OPTEE_BENCHMARK
+	on_each_cpu(disable_cpu_perf_counters, NULL, 1);
+#endif
 	platform_driver_unregister(&optee_driver);
 }
 module_exit(optee_driver_exit);

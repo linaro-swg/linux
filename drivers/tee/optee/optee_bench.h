@@ -1,0 +1,131 @@
+/*
+ * Copyright (c) 2016, Linaro Limited
+ *
+ * This software is licensed under the terms of the GNU General Public
+ * License version 2, as published by the Free Software Foundation, and
+ * may be copied, distributed, and modified under those terms.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ */
+
+#ifndef _OPTEE_BENCH_H
+#define _OPTEE_BENCH_H
+
+#include <linux/tee_drv.h>
+
+/* max amount of timestamps */
+#define OPTEE_BENCH_MAX_STAMPS	10
+#define OPTEE_BENCH_RB_SIZE (sizeof(struct tee_time_buf) + \
+		sizeof(struct tee_time_st) * OPTEE_BENCH_MAX_STAMPS)
+#define OPTEE_BENCH_DEF_PARAM		4
+
+/* OP-TEE susbsystems ids */
+#define OPTEE_BENCH_KMOD	0x20000000
+
+/* storing timestamps */
+struct tee_time_st {
+	u64 cnt;	/* stores value from CNTPCT register */
+	u64 addr;	/* stores value from program counter register */
+	u64 src;	/* OP-TEE subsystem id */
+};
+
+/* memory layout for shared memory, where timestamps will be stored */
+struct tee_time_buf {
+	u64 tm_ind; /* index of the next unfilled timestamp in stamps[] */
+	struct tee_time_st stamps[];
+};
+
+
+/*
+ * Specific defines for ARM performance timers
+ */
+/* aarch32 */
+#define OPTEE_BENCH_DEF_OPTS			(1 | 16)
+#define OPTEE_BENCH_DEF_OVER			0x8000000f
+/* enable 64 divider for CCNT */
+#define OPTEE_BENCH_DIVIDER_OPTS		(OPTEE_BENCH_DEF_OPTS | 8)
+
+/* aarch64 */
+#define OPTEE_BENCH_ARMV8_PMCR_MASK	0x3f
+#define OPTEE_BENCH_ARMV8_PMCR_E	(1 << 0) /* Enable all counters */
+#define OPTEE_BENCH_ARMV8_PMCR_P	(1 << 1) /* Reset all counters */
+#define OPTEE_BENCH_ARMV8_PMCR_C	(1 << 2) /* Cycle counter reset */
+#define OPTEE_BENCH_ARMV8_PMCR_D    (1 << 3) /* 64 divider */
+
+#define OPTEE_BENCH_ARMV8_PMUSERENR_EL0	(1 << 0) /* EL0 access enable */
+#define OPTEE_BENCH_ARMV8_PMUSERENR_CR	(1 << 2) /* CCNT read enable */
+
+#ifdef __aarch64__
+static inline u32 armv8pmu_pmcr_read(void)
+{
+		u64 val = 0;
+
+		asm volatile("mrs %0, pmcr_el0" : "=r"(val));
+		return (u32)val;
+}
+
+static inline void armv8pmu_pmcr_write(u32 val)
+{
+		val &= OPTEE_BENCH_ARMV8_PMCR_MASK;
+		asm volatile("msr pmcr_el0, %0" :: "r"((u64)val));
+}
+#endif
+
+#ifdef CONFIG_OPTEE_BENCHMARK
+/* Reading program counter */
+static inline __attribute__((always_inline)) uintptr_t read_pc(void)
+{
+	uintptr_t pc = NULL;
+#ifdef __aarch64__
+	asm volatile("adr %0, ." : "=r"(pc));
+#else
+	asm volatile("mov %0, r15" : "=r"(pc));
+#endif
+	return pc;
+}
+
+/* Cycle counter */
+static inline u64 read_ccounter(void)
+{
+	u64 ccounter = 0;
+#ifdef __aarch64__
+	asm volatile("mrs %0, PMCCNTR_EL0" : "=r"(ccounter));
+#else
+	asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r"(ccounter));
+#endif
+	return ccounter;
+}
+
+/* Adding timestamp to buffer */
+static inline __attribute__((always_inline)) void bm_timestamp
+				(struct tee_param *param, u32 source)
+{
+	struct tee_time_buf *timeb = NULL;
+	u64 ts_i;
+
+	if (!param || !param[OPTEE_BENCH_DEF_PARAM].u.memref.shm)
+		return;
+
+	timeb = (struct tee_time_buf *) tee_shm_get_va(
+				param[OPTEE_BENCH_DEF_PARAM].u.memref.shm, 0);
+	if (!timeb)
+		return;
+	if (timeb->tm_ind >= OPTEE_BENCH_MAX_STAMPS)
+		return;
+
+	ts_i = timeb->tm_ind++;
+	timeb->stamps[ts_i].cnt = read_ccounter();
+	timeb->stamps[ts_i].addr = read_pc();
+	timeb->stamps[ts_i].src = source;
+}
+#else /* CONFIG_OPTEE_BENCHMARK */
+static inline void bm_timestamp(struct tee_param *param, u32 source)
+{
+		;
+}
+#endif /* CONFIG_OPTEE_BENCHMARK */
+#endif /* _OPTEE_BENCH_H */
