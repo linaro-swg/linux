@@ -464,7 +464,7 @@ static int params_to_supp(struct tee_context *ctx,
 			ip.b = p->u.memref.size;
 			if (!p->u.memref.shm) {
 				ip.a = 0;
-				ip.c = -1;
+				ip.c = (u64)-1; /* invalid shm id */
 				break;
 			}
 			ip.a = p->u.memref.shm_offs;
