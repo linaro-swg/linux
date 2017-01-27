@@ -12,7 +12,7 @@
  *
  */
 
-#define pr_fmt(fmt) "%s: " fmt, __func__
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -317,7 +317,7 @@ static void handle_rpc_func_cmd(struct tee_context *ctx, struct optee *optee,
 
 	arg = tee_shm_get_va(shm, 0);
 	if (IS_ERR(arg)) {
-		pr_err("tee_shm_get_va %p failed\n", shm);
+		pr_err("%s: tee_shm_get_va %p failed\n", __func__, shm);
 		return;
 	}
 
