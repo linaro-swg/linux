@@ -52,3 +52,37 @@ config ION_OF
 	  extensions
 
 	  If using Ion and devicetree, you should say Y here
+
+config ION_SDP
+	bool "Dummy Ion driver for kernel unmap carveout heap"
+	depends on ION
+	help
+	  Provides a dummy ION driver that registers the
+	  /dev/ion device and a carveout heaps default unmapped
+	  to the kernel. This can be used for testing the ION
+	  infrastructure if one doesn't have access to hardware
+	  drivers that use ION.
+
+config ION_SDP_DEFAULT_POOL
+	bool "Statically define a SDP heap to exercice SDP buffer management"
+	depends on ION_SDP
+	help
+	  Provides a dummy ION driver that registers the
+	  /dev/ion device and some basic heaps. This can
+	  be used for testing the ION infrastructure if
+	  one doesn't have access to hardware drivers that
+	  use ION.
+
+config ION_SDP_POOL_BASE
+	int "Physical base address of a static ION SDP heap to create"
+	depends on ION_SDP_DEFAULT_POOL
+	help
+	  Allows one the statically define a SDP heap from the SDP
+	  heap driver, to exercice SDP buffer management.
+
+config ION_SDP_POOL_SIZE
+	int "Physical byte size of a static ION SDP heap to create"
+	depends on ION_SDP_DEFAULT_POOL
+	help
+	  Allows one the statically define a SDP heap from the SDP
+	  heap driver, to exercice SDP buffer management.
