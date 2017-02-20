@@ -558,6 +558,16 @@ static const struct of_device_id optee_match[] = {
 	{},
 };
 
+static void optee_shutdown(struct platform_device *pdev)
+{
+	struct optee *optee = platform_get_drvdata(pdev);
+
+	dev_info(&pdev->dev, "%s: informing OP-TEE we are going away\n",
+		 __func__);
+
+	optee_disable_shm_cache(optee);
+}
+
 static struct platform_driver optee_driver = {
 	.driver = {
 		.name = DRIVER_NAME,
@@ -565,6 +575,7 @@ static struct platform_driver optee_driver = {
 	},
 	.probe = optee_probe,
 	.remove = optee_remove,
+	.shutdown = optee_shutdown,
 };
 
 static int __init optee_driver_init(void)

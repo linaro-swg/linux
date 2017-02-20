@@ -401,7 +401,7 @@ void optee_enable_shm_cache(struct optee *optee)
 }
 
 /**
- * optee_enable_shm_cache() - Disables caching of some shared memory allocation
+ * optee_disable_shm_cache() - Disables caching of some shared memory allocation
  *			      in OP-TEE
  * @optee:	main service struct
  */
