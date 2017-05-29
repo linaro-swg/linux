@@ -40,7 +40,8 @@ void optee_wait_queue_exit(struct optee_wait_queue *priv)
 	mutex_destroy(&priv->mu);
 }
 
-static void handle_rpc_func_cmd_get_time(struct optee_msg_arg *arg)
+static struct optee_rpc_deferred_cleanup *
+handle_rpc_func_cmd_get_time(struct optee_msg_arg *arg)
 {
 	struct timespec64 ts;
 
@@ -55,9 +56,10 @@ static void handle_rpc_func_cmd_get_time(struct optee_msg_arg *arg)
 	arg->params[0].u.value.b = ts.tv_nsec;
 
 	arg->ret = TEEC_SUCCESS;
-	return;
+	return NULL;
 bad:
 	arg->ret = TEEC_ERROR_BAD_PARAMETERS;
+	return NULL;
 }
 
 static struct wq_entry *wq_entry_get(struct optee_wait_queue *wq, u32 key)
@@ -102,7 +104,8 @@ static void wq_wakeup(struct optee_wait_queue *wq, u32 key)
 		complete(&w->c);
 }
 
-static void handle_rpc_func_cmd_wq(struct optee *optee,
+static struct optee_rpc_deferred_cleanup *
+handle_rpc_func_cmd_wq(struct optee *optee,
 				   struct optee_msg_arg *arg)
 {
 	if (arg->num_params != 1)
@@ -124,12 +127,14 @@ static void handle_rpc_func_cmd_wq(struct optee *optee,
 	}
 
 	arg->ret = TEEC_SUCCESS;
-	return;
+	return NULL;
 bad:
 	arg->ret = TEEC_ERROR_BAD_PARAMETERS;
+	return NULL;
 }
 
-static void handle_rpc_func_cmd_wait(struct optee_msg_arg *arg)
+static struct optee_rpc_deferred_cleanup *
+handle_rpc_func_cmd_wait(struct optee_msg_arg *arg)
 {
 	u32 msec_to_wait;
 
@@ -146,13 +151,14 @@ static void handle_rpc_func_cmd_wait(struct optee_msg_arg *arg)
 	msleep_interruptible(msec_to_wait);
 
 	arg->ret = TEEC_SUCCESS;
-	return;
+	return NULL;
 bad:
 	arg->ret = TEEC_ERROR_BAD_PARAMETERS;
+	return NULL;
 }
 
-static void handle_rpc_supp_cmd(struct tee_context *ctx,
-				struct optee_msg_arg *arg)
+static struct optee_rpc_deferred_cleanup *
+handle_rpc_supp_cmd(struct tee_context *ctx, struct optee_msg_arg *arg)
 {
 	struct tee_param *params;
 
@@ -162,7 +168,7 @@ static void handle_rpc_supp_cmd(struct tee_context *ctx,
 			       GFP_KERNEL);
 	if (!params) {
 		arg->ret = TEEC_ERROR_OUT_OF_MEMORY;
-		return;
+		return NULL;
 	}
 
 	if (optee_from_msg_param(params, arg->num_params, arg->params)) {
@@ -176,6 +182,7 @@ static void handle_rpc_supp_cmd(struct tee_context *ctx,
 		arg->ret = TEEC_ERROR_BAD_PARAMETERS;
 out:
 	kfree(params);
+	return NULL;
 }
 
 static struct tee_shm *cmd_alloc_suppl(struct tee_context *ctx, size_t sz)
@@ -201,11 +208,13 @@ static struct tee_shm *cmd_alloc_suppl(struct tee_context *ctx, size_t sz)
 	return shm;
 }
 
-static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
-					  struct optee_msg_arg *arg)
+static struct optee_rpc_deferred_cleanup *
+handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
+			      struct optee_msg_arg *arg)
 {
 	phys_addr_t pa;
 	struct tee_shm *shm;
+	struct optee_rpc_deferred_cleanup *ret;
 	size_t sz;
 	size_t n;
 
@@ -214,13 +223,13 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
 	if (!arg->num_params ||
 	    arg->params[0].attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) {
 		arg->ret = TEEC_ERROR_BAD_PARAMETERS;
-		return;
+		return NULL;
 	}
 
 	for (n = 1; n < arg->num_params; n++) {
 		if (arg->params[n].attr != OPTEE_MSG_ATTR_TYPE_NONE) {
 			arg->ret = TEEC_ERROR_BAD_PARAMETERS;
-			return;
+			return NULL;
 		}
 	}
 
@@ -234,12 +243,12 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
 		break;
 	default:
 		arg->ret = TEEC_ERROR_BAD_PARAMETERS;
-		return;
+		return NULL;
 	}
 
 	if (IS_ERR(shm)) {
 		arg->ret = TEEC_ERROR_OUT_OF_MEMORY;
-		return;
+		return NULL;
 	}
 
 	if (tee_shm_get_pa(shm, 0, &pa)) {
@@ -252,9 +261,10 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
 	arg->params[0].u.tmem.size = sz;
 	arg->params[0].u.tmem.shm_ref = (unsigned long)shm;
 	arg->ret = TEEC_SUCCESS;
-	return;
+	return ret;
 bad:
 	tee_shm_free(shm);
+	return ret;
 }
 
 static void cmd_free_suppl(struct tee_context *ctx, struct tee_shm *shm)
@@ -282,8 +292,8 @@ static void cmd_free_suppl(struct tee_context *ctx, struct tee_shm *shm)
 	optee_supp_thrd_req(ctx, OPTEE_MSG_RPC_CMD_SHM_FREE, 1, &param);
 }
 
-static void handle_rpc_func_cmd_shm_free(struct tee_context *ctx,
-					 struct optee_msg_arg *arg)
+static struct optee_rpc_deferred_cleanup *
+handle_rpc_func_cmd_shm_free(struct tee_context *ctx, struct optee_msg_arg *arg)
 {
 	struct tee_shm *shm;
 
@@ -292,7 +302,7 @@ static void handle_rpc_func_cmd_shm_free(struct tee_context *ctx,
 	if (arg->num_params != 1 ||
 	    arg->params[0].attr != OPTEE_MSG_ATTR_TYPE_VALUE_INPUT) {
 		arg->ret = TEEC_ERROR_BAD_PARAMETERS;
-		return;
+		return NULL;
 	}
 
 	shm = (struct tee_shm *)(unsigned long)arg->params[0].u.value.b;
@@ -307,9 +317,11 @@ static void handle_rpc_func_cmd_shm_free(struct tee_context *ctx,
 		arg->ret = TEEC_ERROR_BAD_PARAMETERS;
 	}
 	arg->ret = TEEC_SUCCESS;
+	return NULL;
 }
 
-static void handle_rpc_func_cmd_bm_reg(struct optee_msg_arg *arg)
+static struct optee_rpc_deferred_cleanup *
+handle_rpc_func_cmd_bm_reg(struct optee_msg_arg *arg)
 {
 	u64 size;
 	u64 type;
@@ -348,43 +360,39 @@ static void handle_rpc_func_cmd_bm_reg(struct optee_msg_arg *arg)
 	}
 
 	arg->ret = TEEC_SUCCESS;
-	return;
+	return NULL;
 bad:
 	arg->ret = TEEC_ERROR_BAD_PARAMETERS;
+	return NULL;
 }
 
-static void handle_rpc_func_cmd(struct tee_context *ctx, struct optee *optee,
-				struct tee_shm *shm)
+static struct optee_rpc_deferred_cleanup *
+handle_rpc_func_cmd(struct tee_context *ctx, struct optee *optee,
+		    struct tee_shm *shm)
 {
 	struct optee_msg_arg *arg;
 
 	arg = tee_shm_get_va(shm, 0);
 	if (IS_ERR(arg)) {
 		pr_err("%s: tee_shm_get_va %p failed\n", __func__, shm);
-		return;
+		return NULL;
 	}
 
 	switch (arg->cmd) {
 	case OPTEE_MSG_RPC_CMD_GET_TIME:
-		handle_rpc_func_cmd_get_time(arg);
-		break;
+		return handle_rpc_func_cmd_get_time(arg);
 	case OPTEE_MSG_RPC_CMD_WAIT_QUEUE:
-		handle_rpc_func_cmd_wq(optee, arg);
-		break;
+		return handle_rpc_func_cmd_wq(optee, arg);
 	case OPTEE_MSG_RPC_CMD_SUSPEND:
-		handle_rpc_func_cmd_wait(arg);
-		break;
+		return handle_rpc_func_cmd_wait(arg);
 	case OPTEE_MSG_RPC_CMD_SHM_ALLOC:
-		handle_rpc_func_cmd_shm_alloc(ctx, arg);
-		break;
+		return handle_rpc_func_cmd_shm_alloc(ctx, arg);
 	case OPTEE_MSG_RPC_CMD_SHM_FREE:
-		handle_rpc_func_cmd_shm_free(ctx, arg);
-		break;
+		return handle_rpc_func_cmd_shm_free(ctx, arg);
 	case OPTEE_MSG_RPC_CMD_BENCH_REG:
-		handle_rpc_func_cmd_bm_reg(arg);
-		break;
+		return handle_rpc_func_cmd_bm_reg(arg);
 	default:
-		handle_rpc_supp_cmd(ctx, arg);
+		return handle_rpc_supp_cmd(ctx, arg);
 	}
 }
 
@@ -395,11 +403,13 @@ static void handle_rpc_func_cmd(struct tee_context *ctx, struct optee *optee,
  *
  * Result of RPC is written back into @param.
  */
-void optee_handle_rpc(struct tee_context *ctx, struct optee_rpc_param *param)
+struct optee_rpc_deferred_cleanup *
+optee_handle_rpc(struct tee_context *ctx, struct optee_rpc_param *param)
 {
 	struct tee_device *teedev = ctx->teedev;
 	struct optee *optee = tee_get_drvdata(teedev);
 	struct tee_shm *shm;
+	struct optee_rpc_deferred_cleanup *ret = NULL;
 	phys_addr_t pa;
 
 	switch (OPTEE_SMC_RETURN_GET_RPC_FUNC(param->a0)) {
@@ -430,7 +440,7 @@ void optee_handle_rpc(struct tee_context *ctx, struct optee_rpc_param *param)
 		break;
 	case OPTEE_SMC_RPC_FUNC_CMD:
 		shm = reg_pair_to_ptr(param->a1, param->a2);
-		handle_rpc_func_cmd(ctx, optee, shm);
+		ret = handle_rpc_func_cmd(ctx, optee, shm);
 		break;
 	default:
 		pr_warn("Unknown RPC func 0x%x\n",
@@ -439,4 +449,5 @@ void optee_handle_rpc(struct tee_context *ctx, struct optee_rpc_param *param)
 	}
 
 	param->a0 = OPTEE_SMC_CALL_RETURN_FROM_RPC;
+	return ret;
 }
