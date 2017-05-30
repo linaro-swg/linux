@@ -118,7 +118,14 @@ struct optee_rpc_param {
 	u32	a7;
 };
 
-void optee_handle_rpc(struct tee_context *ctx, struct optee_rpc_param *param);
+struct optee_rpc_deferred_cleanup {
+	struct list_head list_node;
+	void (*clean_cb)(void *arg);
+	void *arg;
+};
+
+struct optee_rpc_deferred_cleanup*
+optee_handle_rpc(struct tee_context *ctx, struct optee_rpc_param *param);
 
 void optee_wait_queue_init(struct optee_wait_queue *wq);
 void optee_wait_queue_exit(struct optee_wait_queue *wq);

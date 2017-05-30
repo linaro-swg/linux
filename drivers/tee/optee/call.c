@@ -136,8 +136,11 @@ u32 optee_do_call_with_arg(struct tee_context *ctx, phys_addr_t parg)
 	struct optee *optee = tee_get_drvdata(ctx->teedev);
 	struct optee_call_waiter w;
 	struct optee_rpc_param param = { };
+	struct list_head cleanup_list;
+	struct optee_rpc_deferred_cleanup *cleanup;
 	u32 ret;
 
+	INIT_LIST_HEAD(&cleanup_list);
 	param.a0 = OPTEE_SMC_CALL_WITH_ARG;
 	reg_pair_from_64(&param.a1, &param.a2, parg);
 	/* Initialize waiter */
@@ -164,7 +167,10 @@ u32 optee_do_call_with_arg(struct tee_context *ctx, phys_addr_t parg)
 			param.a1 = res.a1;
 			param.a2 = res.a2;
 			param.a3 = res.a3;
-			optee_handle_rpc(ctx, &param);
+			cleanup = optee_handle_rpc(ctx, &param);
+			if (cleanup) {
+				list_add_tail(&cleanup->list_node, &cleanup_list);
+			}
 		} else {
 			ret = res.a0;
 			break;
@@ -177,6 +183,15 @@ u32 optee_do_call_with_arg(struct tee_context *ctx, phys_addr_t parg)
 	 */
 	optee_cq_wait_final(&optee->call_queue, &w);
 
+	/* Execute deferred cleanup functions */
+	while (!list_empty(&cleanup_list)) {
+		cleanup = list_first_entry(&cleanup_list,
+					   struct optee_rpc_deferred_cleanup,
+					   list_node);
+		cleanup->clean_cb(cleanup->arg);
+		list_del(&cleanup->list_node);
+		kfree(cleanup);
+	}
 	return ret;
 }
 
