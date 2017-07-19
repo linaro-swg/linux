@@ -50,9 +50,9 @@ static void tee_shm_release(struct tee_shm *shm)
 		struct tee_shm_pool_mgr *poolm;
 
 		if (shm->flags & TEE_SHM_DMA_BUF)
-			poolm = &teedev->pool->dma_buf_mgr;
+			poolm = teedev->pool->dma_buf_mgr;
 		else
-			poolm = &teedev->pool->private_mgr;
+			poolm = teedev->pool->private_mgr;
 
 		poolm->ops->free(poolm, shm);
 	}
@@ -158,9 +158,9 @@ struct tee_shm *tee_shm_alloc(struct tee_context *ctx, size_t size, u32 flags)
 	shm->teedev = teedev;
 	shm->ctx = ctx;
 	if (flags & TEE_SHM_DMA_BUF)
-		poolm = &teedev->pool->dma_buf_mgr;
+		poolm = teedev->pool->dma_buf_mgr;
 	else
-		poolm = &teedev->pool->private_mgr;
+		poolm = teedev->pool->private_mgr;
 
 	rc = poolm->ops->alloc(poolm, shm, size);
 	if (rc) {
