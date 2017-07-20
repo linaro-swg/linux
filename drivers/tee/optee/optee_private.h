@@ -154,6 +154,10 @@ int optee_from_msg_param(struct tee_param *params, size_t num_params,
 int optee_to_msg_param(struct optee_msg_param *msg_params, size_t num_params,
 		       const struct tee_param *params);
 
+u64 *optee_allocate_pages_array(size_t num_entries);
+void optee_free_pages_array(void *array, size_t num_entries);
+void optee_fill_pages_list(u64 *dst, struct page **pages, size_t num_pages);
+
 /*
  * Small helpers
  */
