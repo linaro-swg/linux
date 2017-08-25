@@ -439,7 +439,10 @@ static inline size_t tee_shm_get_page_offset(struct tee_shm *shm)
  * @shm:	Shared memory handle
  * @returns id
  */
-int tee_shm_get_id(struct tee_shm *shm);
+static inline int tee_shm_get_id(struct tee_shm *shm)
+{
+	return shm->id;
+}
 
 /**
  * tee_shm_get_from_id() - Find shared memory object and increase reference
@@ -467,7 +470,10 @@ static inline bool tee_param_is_memref(struct tee_param *param)
  * @shm:	Shared memory handle
  * @returns true if object is registered in TEE
  */
-bool tee_shm_is_registered(struct tee_shm *shm);
+static inline bool tee_shm_is_registered(struct tee_shm *shm)
+{
+	return shm && (shm->flags & TEE_SHM_REGISTER);
+}
 
 struct tee_context *tee_client_open_context(struct tee_context *start,
 			int (*match)(struct tee_ioctl_version_data *,
