@@ -17,14 +17,8 @@
 
 #include <linux/rwsem.h>
 
-/*
- * Cycle count divider is enabled (in PMCR),
- * CCNT value is incremented every 64th clock cycle
- */
-#define OPTEE_BENCH_DIVIDER			64
-
 /* max amount of timestamps */
-#define OPTEE_BENCH_MAX_STAMPS		32
+#define OPTEE_BENCH_MAX_STAMPS		128
 #define OPTEE_BENCH_MAX_MASK		(OPTEE_BENCH_MAX_STAMPS - 1)
 
 /* OP-TEE susbsystems ids */
@@ -50,6 +44,7 @@ struct optee_ts_cpu_buf {
 /* memory layout for shared memory, where timestamps will be stored */
 struct optee_ts_global {
 	uint64_t cores;
+	uint64_t freq;
 	struct optee_ts_cpu_buf cpu_buf[];
 };
 
@@ -57,12 +52,9 @@ extern struct optee_ts_global *optee_bench_ts_global;
 extern struct rw_semaphore optee_bench_ts_rwsem;
 
 #ifdef CONFIG_OPTEE_BENCHMARK
-void optee_bm_enable(void);
-void optee_bm_disable(void);
 void optee_bm_timestamp(void);
 #else
-static inline void optee_bm_enable(void) {}
-static inline void optee_bm_disable(void) {}
 static inline void optee_bm_timestamp(void) {}
 #endif  /* CONFIG_OPTEE_BENCHMARK */
+
 #endif /* _OPTEE_BENCH_H */
