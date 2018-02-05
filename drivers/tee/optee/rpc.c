@@ -318,6 +318,9 @@ static void handle_rpc_func_cmd_shm_alloc(struct tee_context *ctx,
 	case OPTEE_RPC_SHM_TYPE_KERNEL:
 		shm = tee_shm_alloc(ctx, sz, TEE_SHM_MAPPED | TEE_SHM_PRIV);
 		break;
+	case OPTEE_RPC_SHM_TYPE_GLOBAL:
+		shm = tee_shm_alloc(ctx, sz, TEE_SHM_MAPPED | TEE_SHM_DMA_BUF);
+		break;
 	default:
 		arg->ret = TEEC_ERROR_BAD_PARAMETERS;
 		return;
@@ -426,6 +429,7 @@ static void handle_rpc_func_cmd_shm_free(struct tee_context *ctx,
 		cmd_free_suppl(ctx, shm);
 		break;
 	case OPTEE_RPC_SHM_TYPE_KERNEL:
+	case OPTEE_RPC_SHM_TYPE_GLOBAL:
 		tee_shm_free(shm);
 		break;
 	default:
