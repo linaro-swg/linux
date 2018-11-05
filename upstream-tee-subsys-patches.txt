@@ -6,7 +6,11 @@ text inside the brackets are the kernel version where it was introduced,
 followed by the sha1 hash in the upstream kernel tree.
 
 
-[v4.17] f5d5641b90b3 optee: check shm reference are consistent in offset/size
+[v4.20-rc1] 25559c22cef8 tee: add kernel internal client interface
+[v4.20-rc1] db878f76b9ff tee: optee: take DT status property into account
+[v4.19] 3249527f19d6 tee: optee: making OPTEE_SHM_NUM_PRIV_PAGES configurable via Kconfig
+[v4.19] cf89fe88a676 tee: replace getnstimeofday64() with ktime_get_real_ts64()
+[v4.17] ab9d3db5b320 tee: check shm references are consistent in offset/size
 [v4.17] bb765d1c331f tee: shm: fix use-after-free via temporarily dropped reference
 [v4.16] 5c5f80307ab2 tee: optee: report OP-TEE revision information
 [v4.16] 6e112de04278 tee: optee: GET_OS_REVISION: document a2 as a build identifier
