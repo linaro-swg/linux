@@ -38,11 +38,14 @@ struct tee_shm_pool;
  * @teedev:	pointer to this drivers struct tee_device
  * @list_shm:	List of shared memory object owned by this context
  * @data:	driver specific context data, managed by the driver
+ * @cap_memref_null: flag indicating if the TEE Client support shared
+ *                   memory buffer with a NULL pointer.
  */
 struct tee_context {
 	struct tee_device *teedev;
 	struct list_head list_shm;
 	void *data;
+	bool cap_memref_null;
 };
 
 struct tee_param_memref {

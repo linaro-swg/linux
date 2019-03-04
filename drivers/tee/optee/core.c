@@ -171,6 +171,10 @@ static void optee_get_version(struct tee_device *teedev,
 		.impl_caps = TEE_OPTEE_CAP_TZ,
 		.gen_caps = TEE_GEN_CAP_GP,
 	};
+	struct optee *optee = tee_get_drvdata(teedev);
+
+	if (optee->sec_caps & OPTEE_SMC_SEC_CAP_MEMREF_NULL)
+		v.gen_caps |= TEE_GEN_CAP_MEMREF_NULL;
 	*vers = v;
 }
 
@@ -201,6 +205,11 @@ static int optee_open(struct tee_context *ctx)
 
 	mutex_init(&ctxdata->mutex);
 	INIT_LIST_HEAD(&ctxdata->sess_list);
+
+	if (optee->sec_caps & OPTEE_SMC_SEC_CAP_MEMREF_NULL)
+		ctx->cap_memref_null  = true;
+	else
+		ctx->cap_memref_null = false;
 
 	ctx->data = ctxdata;
 	return 0;
