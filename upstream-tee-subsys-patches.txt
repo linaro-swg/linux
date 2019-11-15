@@ -5,6 +5,8 @@ This is a list of all the patches that relates to the TEE subsystem. The
 text inside the brackets are the kernel version where it was introduced,
 followed by the sha1 hash in the upstream kernel tree.
 
+[v5.4-rc1] 9f02b8f61f29 tee: optee: add might_sleep for RPC requests
+[v5.2-rc1] 9733b072a12a optee: allow to work without static shared memory
 [v5.1-rc1] 32356d309c22 tee: optee: update optee_msg.h and optee_smc.h to dual license
 [v5.1-rc1] 4f062dc1b759 tee: add cancellation support to client interface
 [v5.1-rc1] 62ade1bed27c tee: optee: Fix unsigned comparison with less than zero
