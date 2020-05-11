@@ -6,6 +6,7 @@
  */
 
 /dts-v1/;
+/memreserve/ 0x00000000 0x04080000;
 
 #include <dt-bindings/gpio/gpio.h>
 #include "hi3798cv200.dtsi"
