@@ -16,6 +16,13 @@
 	model = "STMicroelectronics STM32MP157C-DK2 Discovery Board";
 	compatible = "st,stm32mp157c-dk2", "st,stm32mp157";
 
+	reserved-memory {
+		optee_memory: optee@0xde000000 {
+			reg = <0xde000000 0x02000000>;
+			no-map;
+		};
+	};
+
 	aliases {
 		ethernet0 = &ethernet0;
 		serial0 = &uart4;
@@ -98,4 +105,8 @@
 	pinctrl-1 = <&usart2_sleep_pins_c>;
 	pinctrl-2 = <&usart2_idle_pins_c>;
 	status = "disabled";
+};
+
+&optee {
+	status = "okay";
 };
