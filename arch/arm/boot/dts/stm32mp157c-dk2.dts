@@ -11,6 +11,13 @@
 / {
 	model = "STMicroelectronics STM32MP157C-DK2 Discovery Board";
 	compatible = "st,stm32mp157c-dk2", "st,stm32mp157";
+
+	reserved-memory {
+		optee_memory: optee@0xde000000 {
+			reg = <0xde000000 0x02000000>;
+			no-map;
+		};
+	};
 };
 
 &dsi {
@@ -78,4 +85,8 @@
 			remote-endpoint = <&dsi_in>;
 		};
 	};
+};
+
+&optee {
+	status = "okay";
 };
