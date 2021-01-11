@@ -12,6 +12,18 @@
 		/delete-node/ timer@7e003000;
 	};
 
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
+	};
+
+	psci {
+		compatible = "arm,psci-0.2";
+		method = "smc";
+	};
+
 	__overrides__ {
 		arm_freq = <&cpu0>, "clock-frequency:0",
 		       <&cpu1>, "clock-frequency:0",
