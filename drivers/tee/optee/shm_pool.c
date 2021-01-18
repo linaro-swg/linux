@@ -16,8 +16,11 @@ static int pool_op_alloc(struct tee_shm_pool_mgr *poolm,
 			 struct tee_shm *shm, size_t size)
 {
 	unsigned int order = get_order(size);
+	unsigned int nr_pages = 1 << order;
+	struct page **pages;
 	struct page *page;
-	int rc = 0;
+	unsigned int i;
+	int rc;
 
 	page = alloc_pages(GFP_KERNEL | __GFP_ZERO, order);
 	if (!page)
@@ -27,24 +30,39 @@ static int pool_op_alloc(struct tee_shm_pool_mgr *poolm,
 	shm->paddr = page_to_phys(page);
 	shm->size = PAGE_SIZE << order;
 
+	pages = kcalloc(nr_pages, sizeof(pages), GFP_KERNEL);
+	if (!pages) {
+		rc = -ENOMEM;
+		goto err;
+	}
+
+	for (i = 0; i < nr_pages; i++) {
+		pages[i] = page;
+		page++;
+	}
+
 	if (shm->flags & TEE_SHM_DMA_BUF) {
-		unsigned int nr_pages = 1 << order, i;
-		struct page **pages;
-
-		pages = kcalloc(nr_pages, sizeof(pages), GFP_KERNEL);
-		if (!pages)
-			return -ENOMEM;
-
-		for (i = 0; i < nr_pages; i++) {
-			pages[i] = page;
-			page++;
-		}
-
 		shm->flags |= TEE_SHM_REGISTER;
 		rc = optee_shm_register(shm->ctx, shm, pages, nr_pages,
 					(unsigned long)shm->kaddr);
 		kfree(pages);
+		if (rc)
+			goto err;
+	} else {
+		/*
+		 * The caller hasn't explicitly requested this shm to be
+		 * shared with OP-TEE. This shm will instead be shared in
+		 * another way, typically combined with a RPC return.
+		 */
+		shm->pages = pages;
+		shm->num_pages = nr_pages;
 	}
+
+	return 0;
+
+err:
+	free_pages((unsigned long)shm->kaddr, order);
+	shm->kaddr = NULL;
 
 	return rc;
 }
