@@ -77,7 +77,13 @@ static void wq_sleep(struct optee_wait_queue *wq, u32 key)
 	struct wq_entry *w = wq_entry_get(wq, key);
 
 	if (w) {
+		/* Tell freezers to ignore the current task. */
+		freezer_do_not_count();
+
 		wait_for_completion(&w->c);
+
+		/* Tell freezer to stop ignoring current task. */
+		freezer_count();
 		mutex_lock(&wq->mu);
 		list_del(&w->link);
 		mutex_unlock(&wq->mu);

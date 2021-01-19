@@ -48,7 +48,13 @@ static void optee_cq_wait_init(struct optee_call_queue *cq,
 static void optee_cq_wait_for_completion(struct optee_call_queue *cq,
 					 struct optee_call_waiter *w)
 {
+	/* Tell freezers to ignore the current task. */
+	freezer_do_not_count();
+
 	wait_for_completion(&w->c);
+
+	/* Tell freezer to stop ignoring current task. */
+	freezer_count();
 
 	mutex_lock(&cq->mutex);
 

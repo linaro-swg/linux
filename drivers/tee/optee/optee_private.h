@@ -10,6 +10,7 @@
 #include <linux/semaphore.h>
 #include <linux/tee_drv.h>
 #include <linux/types.h>
+#include <linux/freezer.h>
 #include "optee_msg.h"
 
 #define OPTEE_MAX_ARG_SIZE	1024
