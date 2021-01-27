@@ -36,7 +36,8 @@ static void tee_shm_release(struct tee_shm *shm)
 		ref = container_of(shm, struct tee_shm_dmabuf_ref, shm);
 		dma_buf_unmap_attachment(ref->attach, ref->sgt,
 					 DMA_BIDIRECTIONAL);
-		dma_buf_detach(shm->dmabuf, ref->attach);
+		dma_buf_detach(ref->dmabuf, ref->attach);
+		dma_buf_put(ref->shm.dmabuf);
 		dma_buf_put(ref->dmabuf);
 	} else if (shm->flags & TEE_SHM_POOL) {
 		struct tee_shm_pool_mgr *poolm;
@@ -411,6 +412,8 @@ err:
 			dma_buf_detach(ref->dmabuf, ref->attach);
 		if (ref->dmabuf)
 			dma_buf_put(ref->dmabuf);
+		if (ref->shm.dmabuf)
+			dma_buf_put(ref->shm.dmabuf);
 	}
 	kfree(ref);
 	teedev_ctx_put(ctx);
