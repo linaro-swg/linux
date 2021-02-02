@@ -26,6 +26,10 @@
 		serial3 = &v2m_serial3;
 	};
 
+	ftpm {
+	        compatible = "microsoft,ftpm";
+	};
+
 	cpus {
 		#address-cells = <2>;
 		#size-cells = <0>;
