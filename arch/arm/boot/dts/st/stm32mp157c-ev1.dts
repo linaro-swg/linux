@@ -480,7 +480,3 @@
 	st,tune-hs-rx-offset = <2>;
 	st,no-lsfs-sc;
 };
-
-&optee {
-	status = "okay";
-};
