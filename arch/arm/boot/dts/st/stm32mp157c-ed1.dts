@@ -69,6 +69,11 @@
 			reg = <0x38000000 0x10000>;
 			no-map;
 		};
+
+		optee_memory: optee@fe000000 {
+			reg = <0xfe000000 0x2000000>;
+			no-map;
+		};
 	};
 
 	sd_switch: regulator-sd_switch {
@@ -318,6 +323,10 @@
 	mbox-names = "vq0", "vq1", "shutdown", "detach";
 	interrupt-parent = <&exti>;
 	interrupts = <68 1>;
+	status = "okay";
+};
+
+&optee {
 	status = "okay";
 };
 
