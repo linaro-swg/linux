@@ -208,7 +208,8 @@ struct tee_shm *tee_shm_register(struct tee_context *ctx, unsigned long addr,
 	int num_pages;
 	unsigned long start;
 
-	if (flags != req_user_flags && flags != req_kernel_flags)
+	if (((flags & req_user_flags) != req_user_flags) &&
+	    ((flags & req_kernel_flags) != req_kernel_flags))
 		return ERR_PTR(-ENOTSUPP);
 
 	if (!tee_device_get(teedev))
@@ -569,6 +570,17 @@ struct tee_shm *tee_shm_get_from_id(struct tee_context *ctx, int id)
 	return shm;
 }
 EXPORT_SYMBOL_GPL(tee_shm_get_from_id);
+
+/**
+ * tee_shm_get() - Increase reference count on a shared memory handle
+ * @shm:	Shared memory handle
+ */
+void tee_shm_get(struct tee_shm *shm)
+{
+	if (shm->flags & TEE_SHM_DMA_BUF)
+		get_dma_buf(shm->dmabuf);
+}
+EXPORT_SYMBOL_GPL(tee_shm_get);
 
 /**
  * tee_shm_put() - Decrease reference count on a shared memory handle

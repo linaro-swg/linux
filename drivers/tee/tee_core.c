@@ -98,6 +98,8 @@ void teedev_ctx_put(struct tee_context *ctx)
 
 static void teedev_close_context(struct tee_context *ctx)
 {
+	if (ctx->teedev->desc->ops->pre_release)
+		ctx->teedev->desc->ops->pre_release(ctx);
 	tee_device_put(ctx->teedev);
 	teedev_ctx_put(ctx);
 }
@@ -320,18 +322,20 @@ tee_ioctl_shm_register(struct tee_context *ctx,
 		       struct tee_ioctl_shm_register_data __user *udata)
 {
 	long ret;
+	u32 flags = TEE_SHM_DMA_BUF | TEE_SHM_USER_MAPPED;
 	struct tee_ioctl_shm_register_data data;
 	struct tee_shm *shm;
 
 	if (copy_from_user(&data, udata, sizeof(data)))
 		return -EFAULT;
 
-	/* Currently no input flags are supported */
-	if (data.flags)
+	if (data.flags & ~TEE_IOCTL_SHM_OCALL)
 		return -EINVAL;
 
-	shm = tee_shm_register(ctx, data.addr, data.length,
-			       TEE_SHM_DMA_BUF | TEE_SHM_USER_MAPPED);
+	if (data.flags & TEE_IOCTL_SHM_OCALL)
+		flags |= TEE_SHM_OCALL;
+
+	shm = tee_shm_register(ctx, data.addr, data.length, flags);
 	if (IS_ERR(shm))
 		return PTR_ERR(shm);
 
@@ -388,9 +392,81 @@ static int tee_ioctl_shm_register_fd(struct tee_context *ctx,
 	return ret;
 }
 
-static int params_from_user(struct tee_context *ctx, struct tee_param *params,
-			    size_t num_params,
-			    struct tee_ioctl_param __user *uparams)
+static bool param_is_ocall_reply(struct tee_ioctl_param *param)
+{
+	u64 type = param->attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK;
+
+	return param->attr & TEE_IOCTL_PARAM_ATTR_OCALL &&
+	       type == TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INOUT &&
+	       param->a;
+}
+
+static bool param_is_ocall_request(struct tee_param *param)
+{
+	u64 type = param->attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK;
+
+	return param->attr & TEE_IOCTL_PARAM_ATTR_OCALL &&
+	       type == TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INOUT &&
+	       param->u.value.a;
+}
+
+static bool param_is_ocall_request_safe(struct tee_param *param)
+{
+	return param ? param_is_ocall_request(param) : false;
+}
+
+static bool param_is_ocall(struct tee_param *param)
+{
+	u64 type = param->attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK;
+
+	return param->attr & TEE_IOCTL_PARAM_ATTR_OCALL &&
+	       type == TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INOUT;
+}
+
+static struct tee_shm *shm_from_user(struct tee_context *ctx,
+				     struct tee_ioctl_param *ip)
+{
+	struct tee_shm *shm = ERR_PTR(-EINVAL);
+
+	/*
+	 * If a NULL pointer is passed to a TA in the TEE,
+	 * the ip->c IOCTL parameters is set to TEE_MEMREF_NULL
+	 * indicating a NULL memory reference.
+	 */
+	if (ip->c != TEE_MEMREF_NULL) {
+		/*
+		 * If we fail to get a pointer to a shared
+		 * memory object (and increase the ref count)
+		 * from an identifier we return an error. All
+		 * pointers that has been added in params have
+		 * an increased ref count. It's the callers
+		 * responibility to do tee_shm_put() on all
+		 * resolved pointers.
+		 */
+		shm = tee_shm_get_from_id(ctx, ip->c);
+		if (IS_ERR(shm))
+			return shm;
+
+		/*
+		 * Ensure offset + size does not overflow
+		 * offset and does not overflow the size of
+		 * the referred shared memory object.
+		 */
+		if ((ip->a + ip->b) < ip->a || (ip->a + ip->b) > shm->size) {
+			tee_shm_put(shm);
+			return ERR_PTR(-EINVAL);
+		}
+	} else if (ctx->cap_memref_null) {
+		/* Pass NULL pointer to OP-TEE */
+		shm = NULL;
+	}
+
+	return shm;
+}
+
+static int params_from_user_normal(struct tee_context *ctx,
+				   struct tee_param *params, size_t num_params,
+				   struct tee_ioctl_param __user *uparams)
 {
 	size_t n;
 
@@ -419,41 +495,9 @@ static int params_from_user(struct tee_context *ctx, struct tee_param *params,
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_OUTPUT:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INOUT:
-			/*
-			 * If a NULL pointer is passed to a TA in the TEE,
-			 * the ip.c IOCTL parameters is set to TEE_MEMREF_NULL
-			 * indicating a NULL memory reference.
-			 */
-			if (ip.c != TEE_MEMREF_NULL) {
-				/*
-				 * If we fail to get a pointer to a shared
-				 * memory object (and increase the ref count)
-				 * from an identifier we return an error. All
-				 * pointers that has been added in params have
-				 * an increased ref count. It's the callers
-				 * responibility to do tee_shm_put() on all
-				 * resolved pointers.
-				 */
-				shm = tee_shm_get_from_id(ctx, ip.c);
-				if (IS_ERR(shm))
-					return PTR_ERR(shm);
-
-				/*
-				 * Ensure offset + size does not overflow
-				 * offset and does not overflow the size of
-				 * the referred shared memory object.
-				 */
-				if ((ip.a + ip.b) < ip.a ||
-				    (ip.a + ip.b) > shm->size) {
-					tee_shm_put(shm);
-					return -EINVAL;
-				}
-			} else if (ctx->cap_memref_null) {
-				/* Pass NULL pointer to OP-TEE */
-				shm = NULL;
-			} else {
-				return -EINVAL;
-			}
+			shm = shm_from_user(ctx, &ip);
+			if (IS_ERR(shm))
+				return PTR_ERR(shm);
 
 			params[n].u.memref.shm_offs = ip.a;
 			params[n].u.memref.size = ip.b;
@@ -467,8 +511,79 @@ static int params_from_user(struct tee_context *ctx, struct tee_param *params,
 	return 0;
 }
 
-static int params_to_user(struct tee_ioctl_param __user *uparams,
-			  size_t num_params, struct tee_param *params)
+static int params_from_user_ocall(struct tee_context *ctx,
+				  struct tee_param *params, size_t num_params,
+				  struct tee_ioctl_param __user *uparams)
+{
+	size_t n;
+
+	for (n = 0; n < num_params; n++) {
+		struct tee_shm *shm;
+		struct tee_ioctl_param ip;
+
+		if (copy_from_user(&ip, uparams + n, sizeof(ip)))
+			return -EFAULT;
+
+		/* All unused attribute bits has to be zero */
+		if (ip.attr & ~TEE_IOCTL_PARAM_ATTR_MASK)
+			return -EINVAL;
+
+		params[n].attr = ip.attr;
+		switch (ip.attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK) {
+		case TEE_IOCTL_PARAM_ATTR_TYPE_NONE:
+		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INPUT:
+			break;
+		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_OUTPUT:
+		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INOUT:
+			params[n].u.value.a = ip.a;
+			params[n].u.value.b = ip.b;
+			params[n].u.value.c = ip.c;
+			break;
+		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT:
+		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_OUTPUT:
+		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INOUT:
+			shm = shm_from_user(ctx, &ip);
+			if (IS_ERR(shm))
+				return PTR_ERR(shm);
+
+			/*
+			 * Reference counting for OCALL memref parameters is
+			 * handled by the TEE-specific driver as necessary.
+			 */
+			if (shm)
+				tee_shm_put(shm);
+
+			params[n].u.memref.shm_offs = ip.a;
+			params[n].u.memref.size = ip.b;
+			params[n].u.memref.shm = shm;
+			break;
+		default:
+			/* Unknown attribute */
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
+static int params_from_user(struct tee_context *ctx, struct tee_param *params,
+			    size_t num_params,
+			    struct tee_ioctl_param __user *uparams)
+{
+	struct tee_ioctl_param ip;
+
+	if (!num_params)
+		return 0;
+
+	if (copy_from_user(&ip, uparams, sizeof(ip)))
+		return -EFAULT;
+
+	return param_is_ocall_reply(&ip)
+		? params_from_user_ocall(ctx, params, num_params, uparams)
+		: params_from_user_normal(ctx, params, num_params, uparams);
+}
+
+static int params_to_user_normal(struct tee_ioctl_param __user *uparams,
+				 size_t num_params, struct tee_param *params)
 {
 	size_t n;
 
@@ -476,7 +591,7 @@ static int params_to_user(struct tee_ioctl_param __user *uparams,
 		struct tee_ioctl_param __user *up = uparams + n;
 		struct tee_param *p = params + n;
 
-		switch (p->attr) {
+		switch (p->attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK) {
 		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_OUTPUT:
 		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INOUT:
 			if (put_user(p->u.value.a, &up->a) ||
@@ -495,6 +610,87 @@ static int params_to_user(struct tee_ioctl_param __user *uparams,
 	return 0;
 }
 
+static int params_to_user_ocall(struct tee_ioctl_param __user *uparams,
+				size_t num_params, struct tee_param *params)
+{
+	size_t n;
+
+	for (n = 0; n < num_params; n++) {
+		struct tee_ioctl_param __user *up = uparams + n;
+		struct tee_param *p = params + n;
+
+		if (put_user(p->attr, &up->attr))
+			return -EFAULT;
+
+		switch (p->attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK) {
+		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INPUT:
+		case TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INOUT:
+			if (put_user(p->u.value.a, &up->a) ||
+			    put_user(p->u.value.b, &up->b) ||
+			    put_user(p->u.value.c, &up->c))
+				return -EFAULT;
+			break;
+		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INPUT:
+		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_OUTPUT:
+		case TEE_IOCTL_PARAM_ATTR_TYPE_MEMREF_INOUT:
+			if (p->u.memref.shm) {
+				if ((put_user((u64)p->u.memref.shm_offs,
+					      &up->a) ||
+				     put_user((u64)p->u.memref.size, &up->b) ||
+				     put_user(p->u.memref.shm->id, &up->c)))
+					return -EFAULT;
+			} else {
+				if (put_user(0, &up->a) ||
+				    put_user(0, &up->b) ||
+				    put_user(TEE_MEMREF_NULL, &up->c))
+					return -EFAULT;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+	return 0;
+}
+
+static int params_to_user(struct tee_ioctl_param __user *uparams,
+			  size_t num_params, struct tee_param *params)
+{
+	if (!num_params)
+		return 0;
+
+	return param_is_ocall_request(params)
+		? params_to_user_ocall(uparams, num_params, params)
+		: params_to_user_normal(uparams, num_params, params);
+}
+
+static inline int find_ocall_param(struct tee_param *params, u32 num_params,
+				   struct tee_param **normal_params,
+				   u32 *num_normal_params,
+				   struct tee_param **ocall_param)
+{
+	size_t n;
+
+	for (n = 0; n < num_params; n++) {
+		if (param_is_ocall(params + n)) {
+			if (n == 0) {
+				*normal_params = params + 1;
+				*num_normal_params = num_params - 1;
+				*ocall_param = params;
+				return 0;
+			} else {
+				return -EINVAL;
+			}
+		}
+	}
+
+	*normal_params = params;
+	*num_normal_params = num_params;
+	*ocall_param = NULL;
+
+	return 0;
+}
+
 static int tee_ioctl_open_session(struct tee_context *ctx,
 				  struct tee_ioctl_buf_data __user *ubuf)
 {
@@ -505,6 +701,9 @@ static int tee_ioctl_open_session(struct tee_context *ctx,
 	struct tee_ioctl_open_session_arg arg;
 	struct tee_ioctl_param __user *uparams = NULL;
 	struct tee_param *params = NULL;
+	struct tee_param *ocall_param = NULL;
+	struct tee_param *normal_params = NULL;
+	u32 num_normal_params = 0;
 	bool have_session = false;
 
 	if (!ctx->teedev->desc->ops->open_session)
@@ -533,6 +732,10 @@ static int tee_ioctl_open_session(struct tee_context *ctx,
 		rc = params_from_user(ctx, params, arg.num_params, uparams);
 		if (rc)
 			goto out;
+		rc = find_ocall_param(params, arg.num_params, &normal_params,
+				      &num_normal_params, &ocall_param);
+		if (rc)
+			goto out;
 	}
 
 	if (arg.clnt_login >= TEE_IOCTL_LOGIN_REE_KERNEL_MIN &&
@@ -542,7 +745,9 @@ static int tee_ioctl_open_session(struct tee_context *ctx,
 		goto out;
 	}
 
-	rc = ctx->teedev->desc->ops->open_session(ctx, &arg, params);
+	rc = ctx->teedev->desc->ops->open_session(ctx, &arg, normal_params,
+						  num_normal_params,
+						  ocall_param);
 	if (rc)
 		goto out;
 	have_session = true;
@@ -564,10 +769,11 @@ out:
 
 	if (params) {
 		/* Decrease ref count for all valid shared memory pointers */
-		for (n = 0; n < arg.num_params; n++)
-			if (tee_param_is_memref(params + n) &&
-			    params[n].u.memref.shm)
-				tee_shm_put(params[n].u.memref.shm);
+		if (!param_is_ocall_request_safe(ocall_param))
+			for (n = 0; n < arg.num_params; n++)
+				if (tee_param_is_memref(params + n) &&
+				    params[n].u.memref.shm)
+					tee_shm_put(params[n].u.memref.shm);
 		kfree(params);
 	}
 
@@ -584,6 +790,9 @@ static int tee_ioctl_invoke(struct tee_context *ctx,
 	struct tee_ioctl_invoke_arg arg;
 	struct tee_ioctl_param __user *uparams = NULL;
 	struct tee_param *params = NULL;
+	struct tee_param *ocall_param = NULL;
+	struct tee_param *normal_params = NULL;
+	u32 num_normal_params = 0;
 
 	if (!ctx->teedev->desc->ops->invoke_func)
 		return -EINVAL;
@@ -611,9 +820,23 @@ static int tee_ioctl_invoke(struct tee_context *ctx,
 		rc = params_from_user(ctx, params, arg.num_params, uparams);
 		if (rc)
 			goto out;
+
+		/*
+		 * The OCALL parameter must be first so that we know how to
+		 * process the remainder of the parameters, or not be present at
+		 * all. This function returns an error if the OCALL parameter is
+		 * found in the wrong place. If it is not found, 'ocall_param'
+		 * remains NULL.
+		 */
+		rc = find_ocall_param(params, arg.num_params, &normal_params,
+				      &num_normal_params, &ocall_param);
+		if (rc)
+			goto out;
 	}
 
-	rc = ctx->teedev->desc->ops->invoke_func(ctx, &arg, params);
+	rc = ctx->teedev->desc->ops->invoke_func(ctx, &arg, normal_params,
+						 num_normal_params,
+						 ocall_param);
 	if (rc)
 		goto out;
 
@@ -625,11 +848,22 @@ static int tee_ioctl_invoke(struct tee_context *ctx,
 	rc = params_to_user(uparams, arg.num_params, params);
 out:
 	if (params) {
-		/* Decrease ref count for all valid shared memory pointers */
-		for (n = 0; n < arg.num_params; n++)
-			if (tee_param_is_memref(params + n) &&
-			    params[n].u.memref.shm)
-				tee_shm_put(params[n].u.memref.shm);
+		/*
+		 * Decrease the ref count for all valid shared memory pointers
+		 * if this is a normal return. If returning with an OCALL
+		 * request, the parameters should have been overwritten with
+		 * those of the OCALL. The original parameters, and thus the
+		 * memrefs carrying the SHMs whose ref count was increased on
+		 * entry, shall be restored once the full OCALL sequence is
+		 * finished. When that happens, we decrease the ref count on
+		 * them. Otherwise, we leave the SHMs be; the TEE-specific
+		 * driver should have dealt with their ref counts already.
+		 */
+		if (!param_is_ocall_request_safe(ocall_param))
+			for (n = 0; n < arg.num_params; n++)
+				if (tee_param_is_memref(params + n) &&
+				    params[n].u.memref.shm)
+					tee_shm_put(params[n].u.memref.shm);
 		kfree(params);
 	}
 	return rc;
@@ -1218,9 +1452,22 @@ int tee_client_open_session(struct tee_context *ctx,
 			    struct tee_ioctl_open_session_arg *arg,
 			    struct tee_param *param)
 {
+	struct tee_param *ocall_param = NULL;
+	struct tee_param *normal_params = NULL;
+	u32 num_normal_params = 0;
+	int rc;
+
 	if (!ctx->teedev->desc->ops->open_session)
 		return -EINVAL;
-	return ctx->teedev->desc->ops->open_session(ctx, arg, param);
+
+	rc = find_ocall_param(param, arg->num_params, &normal_params,
+			      &num_normal_params, &ocall_param);
+	if (rc)
+		return rc;
+
+	return ctx->teedev->desc->ops->open_session(ctx, arg, normal_params,
+						    num_normal_params,
+						    ocall_param);
 }
 EXPORT_SYMBOL_GPL(tee_client_open_session);
 
@@ -1236,9 +1483,22 @@ int tee_client_invoke_func(struct tee_context *ctx,
 			   struct tee_ioctl_invoke_arg *arg,
 			   struct tee_param *param)
 {
+	struct tee_param *ocall_param = NULL;
+	struct tee_param *normal_params = NULL;
+	u32 num_normal_params = 0;
+	int rc;
+
 	if (!ctx->teedev->desc->ops->invoke_func)
 		return -EINVAL;
-	return ctx->teedev->desc->ops->invoke_func(ctx, arg, param);
+
+	rc = find_ocall_param(param, arg->num_params, &normal_params,
+			      &num_normal_params, &ocall_param);
+	if (rc)
+		return rc;
+
+	return ctx->teedev->desc->ops->invoke_func(ctx, arg, normal_params,
+						   num_normal_params,
+						   ocall_param);
 }
 EXPORT_SYMBOL_GPL(tee_client_invoke_func);
 

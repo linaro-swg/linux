@@ -404,12 +404,13 @@ struct optee_msg_arg {
  */
 #define OPTEE_MSG_RPC_CMD_SHM_ALLOC	6
 /* Memory that can be shared with a non-secure user space application */
-#define OPTEE_MSG_RPC_SHM_TYPE_APPL	0
+#define OPTEE_MSG_RPC_SHM_TYPE_APPL		0
 /* Memory only shared with non-secure kernel */
-#define OPTEE_MSG_RPC_SHM_TYPE_KERNEL	1
+#define OPTEE_MSG_RPC_SHM_TYPE_KERNEL		1
 /* Memory shared with non-secure kernel, but exported to userspace */
-#define OPTEE_MSG_RPC_SHM_TYPE_GLOBAL	2
-
+#define OPTEE_MSG_RPC_SHM_TYPE_GLOBAL		2
+/* Memory shared with the requesting TA's Client Application */
+#define OPTEE_MSG_RPC_SHM_TYPE_CLIENT_APPL	3
 /*
  * Free shared memory previously allocated with OPTEE_MSG_RPC_CMD_SHM_ALLOC
  *
@@ -429,4 +430,18 @@ struct optee_msg_arg {
  * [in] param[0].u.value.c	Size of buffer
  */
 #define OPTEE_MSG_RPC_CMD_BENCH_REG	20
+
+/*
+ * Send a command to the Client Application.
+ *
+ * [in]  param[0].u.value[0].a		command Id
+ * [out] param[0].u.value[0].b		OCALL return value
+ * [out] param[0].u.value[0].c		OCALL return value origin
+ * [in]  param[0].u.value[1].a		UUID of TA whence OCALL originated (Hi)
+ * [out] param[0].u.value[1].b		UUID of TA whence OCALL originated (Lo)
+ *
+ * [in/out] any[2..5].*	    OCALL parameters as specified by the TA, if any
+ */
+#define OPTEE_MSG_RPC_CMD_OCALL		22
+
 #endif /* _OPTEE_MSG_H */

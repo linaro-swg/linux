@@ -18,6 +18,7 @@
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/workqueue.h>
+#include <linux/xarray.h>
 #include "optee_bench.h"
 #include "optee_private.h"
 #include "optee_smc.h"
@@ -209,6 +210,8 @@ static void optee_get_version(struct tee_device *teedev,
 		v.gen_caps |= TEE_GEN_CAP_REG_MEM;
 	if (optee->sec_caps & OPTEE_SMC_SEC_CAP_MEMREF_NULL)
 		v.gen_caps |= TEE_GEN_CAP_MEMREF_NULL;
+	if (optee->sec_caps & OPTEE_SMC_SEC_CAP_OCALL)
+		v.gen_caps |= TEE_GEN_CAP_OCALL;
 	*vers = v;
 }
 
@@ -254,11 +257,10 @@ static int optee_open(struct tee_context *ctx)
 	}
 	mutex_init(&ctxdata->mutex);
 	INIT_LIST_HEAD(&ctxdata->sess_list);
+	idr_init(&ctxdata->tmp_sess_list);
 
-	if (optee->sec_caps & OPTEE_SMC_SEC_CAP_MEMREF_NULL)
-		ctx->cap_memref_null  = true;
-	else
-		ctx->cap_memref_null = false;
+	ctx->cap_memref_null = optee->sec_caps & OPTEE_SMC_SEC_CAP_MEMREF_NULL;
+	ctx->cap_ocall = optee->sec_caps & OPTEE_SMC_SEC_CAP_OCALL;
 
 	ctx->data = ctxdata;
 	return 0;
@@ -303,6 +305,7 @@ static void optee_release(struct tee_context *ctx)
 		}
 		kfree(sess);
 	}
+	idr_destroy(&ctxdata->tmp_sess_list);
 	kfree(ctxdata);
 
 	if (!IS_ERR(shm))
@@ -319,9 +322,68 @@ static void optee_release(struct tee_context *ctx)
 	}
 }
 
+static void optee_pre_release(struct tee_context *ctx)
+{
+	struct optee_context_data *ctxdata = ctx->data;
+	struct optee_session *sess;
+	bool have_xa = false;
+	unsigned long i = 0;
+	struct xarray xa;
+	int id;
+
+	if (!ctxdata)
+		return;
+
+	/*
+	 * Only if necessary, add into 'xa' sessions that have to have an OCALL
+	 * cancelled instead of doing so in the loops to avoid calling into
+	 * secure world with @mutex held.
+	 */
+	mutex_lock(&ctxdata->mutex);
+	idr_for_each_entry(&ctxdata->tmp_sess_list, sess, id) {
+		if (!have_xa) {
+			xa_init(&xa);
+			have_xa = true;
+		}
+		idr_remove(&ctxdata->tmp_sess_list, id);
+		xa_store(&xa, i++, xa_tag_pointer(sess, 1), GFP_KERNEL);
+	}
+	list_for_each_entry(sess, &ctxdata->sess_list, list_node) {
+		if (!sess->call_ctx.rpc_shm)
+			continue;
+		if (!have_xa) {
+			xa_init(&xa);
+			have_xa = true;
+		}
+		xa_store(&xa, i++, sess, GFP_KERNEL);
+	}
+	mutex_unlock(&ctxdata->mutex);
+
+	if (!have_xa)
+		return;
+
+	xa_for_each(&xa, i, sess) {
+		if (xa_pointer_tag(sess)) {
+			optee_cancel_open_session_ocall(xa_untag_pointer(sess));
+		} else {
+			/*
+			 * Holding @sem here while calling into secure world is
+			 * fine seeing as there is no code path that would
+			 * recursively acquire it.
+			 */
+			down(&sess->sem);
+			optee_cancel_invoke_function_ocall(&sess->call_ctx);
+			up(&sess->sem);
+		}
+	}
+
+	xa_destroy(&xa);
+}
+
 static const struct tee_driver_ops optee_ops = {
 	.get_version = optee_get_version,
 	.open = optee_open,
+	.pre_release = optee_pre_release,
 	.release = optee_release,
 	.open_session = optee_open_session,
 	.close_session = optee_close_session,
