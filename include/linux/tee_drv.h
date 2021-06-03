@@ -471,12 +471,12 @@ struct tee_shm *tee_shm_get_from_id(struct tee_context *ctx, int id);
  * tee_dev_open_helper() - helper function to make a struct tee_context
  * @teedev:	Device to open
  *
- * Creates the struct tee_context without increasing the refernce counter
+ * Creates the struct tee_context without increasing the reference counter
  * on @teedev. This is needed for instance when a driver need an internal
  * struct tee_context to operate on. By skipping the reference counter
  * the circular dependency is broken.
  *
- * Note that this struct tee_context need special care when freeing to in
+ * Note that this struct tee_context need special care when freeing in
  * order to avoid the normal put on the struct tee_device.
  * tee_dev_ctx_put() is the best choice for this.
  *
