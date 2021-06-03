@@ -107,7 +107,7 @@ struct optee_smc_call_get_os_revision_result {
 /*
  * Call with struct optee_msg_arg as argument
  *
- * When calling this function normal world has a few responisbilities:
+ * When calling this function normal world has a few responsibilities:
  * 1. It must be able to handle eventual RPCs
  * 2. Non-secure interrupts should not be masked
  * 3. If asynchronous notifications has be negotiated successfully, then
