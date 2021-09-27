@@ -237,7 +237,6 @@ int optee_pool_op_alloc_helper(struct tee_shm_pool_mgr *poolm,
 						   size_t num_pages,
 						   unsigned long start));
 
-
 void optee_remove_common(struct optee *optee);
 int optee_open(struct tee_context *ctx, bool cap_memref_null);
 void optee_release(struct tee_context *ctx);
