@@ -977,6 +977,99 @@ static int optee_smc_stop_async_notif(struct tee_context *ctx)
  * 5. Asynchronous notification
  */
 
+static void optee_itr_notif_mask(struct irq_data *d)
+{
+	struct optee *optee = d->domain->host_data;
+	struct arm_smccc_res res = { };
+
+	optee->smc.invoke_fn(OPTEE_SMC_NOTIF_ITR_SET_MASK, d->hwirq, 1,
+			     0, 0, 0, 0, 0, &res);
+}
+
+static void optee_itr_notif_unmask(struct irq_data *d)
+{
+	struct optee *optee = d->domain->host_data;
+	struct arm_smccc_res res = { };
+
+	optee->smc.invoke_fn(OPTEE_SMC_NOTIF_ITR_SET_MASK, d->hwirq, 0,
+			     0, 0, 0, 0, 0, &res);
+}
+
+static void optee_itr_notif_enable(struct irq_data *d)
+{
+	struct optee *optee = d->domain->host_data;
+	struct arm_smccc_res res;
+
+	optee->smc.invoke_fn(OPTEE_SMC_NOTIF_ITR_SET_STATE, d->hwirq, 1,
+			     0, 0, 0, 0, 0, &res);
+}
+
+static void optee_itr_notif_disable(struct irq_data *d)
+{
+	struct optee *optee = d->domain->host_data;
+	struct arm_smccc_res res;
+
+	optee->smc.invoke_fn(OPTEE_SMC_NOTIF_ITR_SET_STATE, d->hwirq, 0,
+			     0, 0, 0, 0, 0, &res);
+}
+
+static int optee_itr_notif_set_wake(struct irq_data *d, unsigned int on)
+{
+	struct optee *optee = d->domain->host_data;
+	struct arm_smccc_res res;
+
+	optee->smc.invoke_fn(OPTEE_SMC_NOTIF_ITR_SET_WAKEUP, d->hwirq, !!on,
+			     0, 0, 0, 0, 0, &res);
+
+	if (res.a0)
+		return -EINVAL;
+	return 0;
+}
+
+static struct irq_chip optee_irq_chip = {
+	.name = "optee-itr-notif",
+	.irq_mask = optee_itr_notif_mask,
+	.irq_unmask = optee_itr_notif_unmask,
+	.irq_disable = optee_itr_notif_disable,
+	.irq_enable = optee_itr_notif_enable,
+	.irq_set_wake = optee_itr_notif_set_wake,
+};
+
+static int optee_itr_alloc(struct irq_domain *d, unsigned int virq,
+			  unsigned int nr_irqs, void *data)
+{
+	struct irq_fwspec *fwspec = data;
+	irq_hw_number_t hwirq;
+
+	hwirq = fwspec->param[0];
+
+	irq_domain_set_hwirq_and_chip(d, virq, hwirq, &optee_irq_chip,
+				      d->host_data);
+
+	return 0;
+}
+
+static const struct irq_domain_ops optee_irq_domain_ops = {
+	.alloc = optee_itr_alloc,
+	.free = irq_domain_free_irqs_common,
+};
+
+static int optee_irq_domain_init(struct platform_device *pdev,
+				 struct optee *optee, u_int max_it)
+{
+	struct device *dev = &pdev->dev;
+	struct device_node *np = dev->of_node;
+
+	optee->smc.domain = irq_domain_add_linear(np, max_it,
+						  &optee_irq_domain_ops, optee);
+	if (!optee->smc.domain) {
+		dev_err(dev, "Unable to add irq domain\n");
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
 static u32 get_async_notif_value(optee_invoke_fn *invoke_fn, bool *value_valid,
 				 bool *value_pending)
 {
@@ -991,6 +1084,61 @@ static u32 get_async_notif_value(optee_invoke_fn *invoke_fn, bool *value_valid,
 	return res.a1;
 }
 
+static void forward_irq(struct optee *optee, unsigned int itr_num)
+{
+	if (generic_handle_domain_irq(optee->smc.domain, itr_num)) {
+		struct arm_smccc_res res = { };
+
+		pr_err("No consumer for optee irq %u, masked\n", itr_num);
+		optee->smc.invoke_fn(OPTEE_SMC_NOTIF_ITR_SET_MASK, itr_num, 1,
+				     0, 0, 0, 0, 0, &res);
+	}
+}
+
+static void retrieve_pending_irqs(struct optee *optee, bool *async_pending,
+				  bool *do_bottom_half)
+
+{
+	struct arm_smccc_res res;
+	bool irq_pending;
+	ssize_t cnt;
+	const unsigned int lsb_mask = GENMASK(15, 0);
+	const unsigned int msb_shift = 16;
+
+	*do_bottom_half = false;
+
+	do {
+		optee->smc.invoke_fn(OPTEE_SMC_GET_NOTIF_ITR, 0, 0, 0, 0, 0, 0,
+				     0, &res);
+
+		if (res.a0)
+			return;
+
+		if (res.a1 & OPTEE_SMC_NOTIF_DO_BOTTOM_HALF)
+			*do_bottom_half = true;
+
+		irq_pending = res.a1 & OPTEE_SMC_NOTIF_ITR_PENDING;
+		cnt = res.a1 & OPTEE_SMC_NOTIF_ITR_COUNT_MASK;
+		if (cnt > 5 || (!cnt && irq_pending)) {
+			WARN_ONCE(0, "Unexpected irq notif count %zi\n", cnt);
+			break;
+		}
+
+		if (cnt > 0)
+			forward_irq(optee, res.a1 >> msb_shift);
+		if (cnt > 1)
+			forward_irq(optee, res.a2 & lsb_mask);
+		if (cnt > 2)
+			forward_irq(optee, res.a2 >> msb_shift);
+		if (cnt > 3)
+			forward_irq(optee, res.a3 & lsb_mask);
+		if (cnt == 5)
+			forward_irq(optee, res.a3 >> msb_shift);
+	} while (irq_pending);
+
+	*async_pending = res.a1 & OPTEE_SMC_NOTIF_VALUE_PENDING;
+}
+
 static irqreturn_t notif_irq_handler(int irq, void *dev_id)
 {
 	struct optee *optee = dev_id;
@@ -999,9 +1147,14 @@ static irqreturn_t notif_irq_handler(int irq, void *dev_id)
 	bool value_pending;
 	u32 value;
 
-	do {
-		value = get_async_notif_value(optee->smc.invoke_fn,
-					      &value_valid, &value_pending);
+	if (optee->smc.sec_caps & OPTEE_SMC_SEC_CAP_ITR_NOTIF)
+		retrieve_pending_irqs(optee, &value_pending, &do_bottom_half);
+	else
+		value_pending = true;
+
+	while (value_pending) {
+		value = get_async_notif_value(optee->smc.invoke_fn, &value_valid,
+					      &value_pending);
 		if (!value_valid)
 			break;
 
@@ -1009,10 +1162,11 @@ static irqreturn_t notif_irq_handler(int irq, void *dev_id)
 			do_bottom_half = true;
 		else
 			optee_notif_send(optee, value);
-	} while (value_pending);
+	};
 
 	if (do_bottom_half)
 		return IRQ_WAKE_THREAD;
+
 	return IRQ_HANDLED;
 }
 
@@ -1048,6 +1202,9 @@ static void optee_smc_notif_uninit_irq(struct optee *optee)
 			free_irq(optee->smc.notif_irq, optee);
 			irq_dispose_mapping(optee->smc.notif_irq);
 		}
+
+		if (optee->smc.sec_caps & OPTEE_SMC_SEC_CAP_ITR_NOTIF)
+			irq_domain_remove(optee->smc.domain);
 	}
 }
 
@@ -1187,6 +1344,7 @@ static bool optee_msg_api_revision_is_compatible(optee_invoke_fn *invoke_fn)
 
 static bool optee_msg_exchange_capabilities(optee_invoke_fn *invoke_fn,
 					    u32 *sec_caps, u32 *max_notif_value,
+					    u32 *max_notif_it,
 					    unsigned int *rpc_param_count)
 {
 	union {
@@ -1218,6 +1376,13 @@ static bool optee_msg_exchange_capabilities(optee_invoke_fn *invoke_fn,
 		*rpc_param_count = (u8)res.result.data;
 	else
 		*rpc_param_count = 0;
+
+	if (*sec_caps & OPTEE_SMC_SEC_CAP_ITR_NOTIF)
+		*max_notif_it = (res.result.data &
+				 OPTEE_SMC_SEC_CAP_MAX_NOTIF_ITR_MASK) >>
+				OPTEE_SMC_SEC_CAP_MAX_NOTIF_ITR_SHIFT;
+	else
+		*max_notif_it = 0;
 
 	return true;
 }
@@ -1364,6 +1529,7 @@ static int optee_probe(struct platform_device *pdev)
 	struct tee_device *teedev;
 	struct tee_context *ctx;
 	u32 max_notif_value;
+	u32 max_notif_it;
 	u32 arg_cache_flags;
 	u32 sec_caps;
 	int rc;
@@ -1385,7 +1551,7 @@ static int optee_probe(struct platform_device *pdev)
 	}
 
 	if (!optee_msg_exchange_capabilities(invoke_fn, &sec_caps,
-					     &max_notif_value,
+					     &max_notif_value, &max_notif_it,
 					     &rpc_param_count)) {
 		pr_warn("capabilities mismatch\n");
 		return -EINVAL;
@@ -1506,6 +1672,16 @@ static int optee_probe(struct platform_device *pdev)
 			irq_dispose_mapping(irq);
 			goto err_notif_uninit;
 		}
+
+		if (sec_caps & OPTEE_SMC_SEC_CAP_ITR_NOTIF) {
+			rc = optee_irq_domain_init(pdev, optee, max_notif_it);
+			if (rc) {
+				free_irq(optee->smc.notif_irq, optee);
+				irq_dispose_mapping(irq);
+				goto err_notif_uninit;
+			}
+		}
+
 		enable_async_notif(optee->smc.invoke_fn);
 		pr_info("Asynchronous notifications enabled\n");
 	}
