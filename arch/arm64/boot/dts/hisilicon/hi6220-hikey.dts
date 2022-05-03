@@ -258,6 +258,17 @@
 		};
 	};
 
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+
+		sdp@3e800000 {
+			compatible = "linaro,secure-heap";
+			no-map;
+			reg = <0 0x3E800000 0 0x00400000>;
+		};
+	};
+
 	sound_card {
 		compatible = "audio-graph-card";
 		dais = <&i2s0_port0>;
