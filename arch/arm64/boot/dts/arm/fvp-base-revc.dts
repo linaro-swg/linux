@@ -110,6 +110,11 @@
 			reg = <0x00000000 0x18000000 0 0x00800000>;
 			no-map;
 		};
+
+		optee@83000000 {
+			reg = <0x00000000 0x83000000 0 0x01000000>;
+			no-map;
+		};
 	};
 
 	gic: interrupt-controller@2f000000 {
@@ -243,5 +248,12 @@
 				<0 0 43 &gic 0 0 GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>,
 				<0 0 44 &gic 0 0 GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>,
 				<0 0 46 &gic 0 0 GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	firmware {
+		optee {
+			compatible = "linaro,optee-tz";
+			method = "smc";
+		};
 	};
 };
