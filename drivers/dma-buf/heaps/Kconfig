@@ -1,3 +1,13 @@
+menuconfig DMABUF_HEAPS_DEFERRED_FREE
+	bool "DMA-BUF heaps deferred-free library"
+	help
+	  Choose this option to enable the DMA-BUF heaps deferred-free library.
+
+menuconfig DMABUF_HEAPS_PAGE_POOL
+	bool "DMA-BUF heaps page-pool library"
+	help
+	  Choose this option to enable the DMA-BUF heaps page-pool library.
+
 config DMABUF_HEAPS_SYSTEM
 	bool "DMA-BUF System Heap"
 	depends on DMABUF_HEAPS
@@ -12,3 +22,12 @@ config DMABUF_HEAPS_CMA
 	  Choose this option to enable dma-buf CMA heap. This heap is backed
 	  by the Contiguous Memory Allocator (CMA). If your system has these
 	  regions, you should say Y here.
+
+config DMABUF_HEAPS_SECURE
+	tristate "DMA-BUF Secure Heap"
+	depends on DMABUF_HEAPS && DMABUF_HEAPS_DEFERRED_FREE
+	help
+	  Choose this option to enable the secure dmabuf heap. The secure heap
+	  pools are defined according to the DT. Heaps are allocated
+	  in the pools using gen allocater.
+	  If in doubt, say Y.
