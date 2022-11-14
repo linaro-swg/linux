@@ -740,7 +740,7 @@
 };
 
 &usbdrd_dwc3_0 {
-	status = "okay";
+	status = "disabled";
 	dr_mode = "host";
 };
 
