@@ -151,6 +151,24 @@
 		regulator-min-microvolt = <800000>;
 		regulator-max-microvolt = <1400000>;
 	};
+
+       firmware {
+	       optee {
+		       compatible = "linaro,optee-tz";
+		       method = "smc";
+	       };
+       };
+
+       reserved-memory {
+	       #address-cells = <2>;
+	       #size-cells = <2>;
+	       ranges;
+
+	       optee@30000000 {
+		       reg = <0x0 0x30000000 0x0 0x2400000>;
+		       no-map;
+	       };
+       };
 };
 
 &cpu_l0 {
