@@ -102,7 +102,7 @@ struct tee_driver_ops {
 	int (*close_session)(struct tee_context *ctx, u32 session);
 	int (*invoke_func)(struct tee_context *ctx,
 			   struct tee_ioctl_invoke_arg *arg,
-			   struct tee_param *param);
+			   struct tee_param *param, bool system_thread);
 	int (*cancel_req)(struct tee_context *ctx, u32 cancel_id, u32 session);
 	int (*supp_recv)(struct tee_context *ctx, u32 *func, u32 *num_params,
 			 struct tee_param *param);
@@ -441,6 +441,22 @@ int tee_client_close_session(struct tee_context *ctx, u32 session);
 int tee_client_invoke_func(struct tee_context *ctx,
 			   struct tee_ioctl_invoke_arg *arg,
 			   struct tee_param *param);
+
+/**
+ * tee_client_system_invoke_func() - Invoke a function in a system Trusted Application
+ * @ctx:	TEE Context
+ * @arg:	Invoke arguments, see description of
+ *		struct tee_ioctl_invoke_arg
+ * @param:	Parameters passed to the Trusted Application
+ *
+ * System trusted applications are trusted services requiring a provisioned
+ * execution context.
+ *
+ * Returns < 0 on error else see @arg->ret for result.
+ */
+int tee_client_system_invoke_func(struct tee_context *ctx,
+				  struct tee_ioctl_invoke_arg *arg,
+				  struct tee_param *param);
 
 /**
  * tee_client_cancel_req() - Request cancellation of the previous open-session

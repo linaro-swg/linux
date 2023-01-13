@@ -579,7 +579,7 @@ static int tee_ioctl_invoke(struct tee_context *ctx,
 			goto out;
 	}
 
-	rc = ctx->teedev->desc->ops->invoke_func(ctx, &arg, params);
+	rc = ctx->teedev->desc->ops->invoke_func(ctx, &arg, params, false);
 	if (rc)
 		goto out;
 
@@ -1170,15 +1170,30 @@ int tee_client_close_session(struct tee_context *ctx, u32 session)
 }
 EXPORT_SYMBOL_GPL(tee_client_close_session);
 
+static int _tee_client_invoke_func(struct tee_context *ctx,
+				   struct tee_ioctl_invoke_arg *arg,
+				   struct tee_param *param, bool system_thread)
+{
+	if (!ctx->teedev->desc->ops->invoke_func)
+		return -EINVAL;
+	return ctx->teedev->desc->ops->invoke_func(ctx, arg, param, system_thread);
+}
+
 int tee_client_invoke_func(struct tee_context *ctx,
 			   struct tee_ioctl_invoke_arg *arg,
 			   struct tee_param *param)
 {
-	if (!ctx->teedev->desc->ops->invoke_func)
-		return -EINVAL;
-	return ctx->teedev->desc->ops->invoke_func(ctx, arg, param);
+	return _tee_client_invoke_func(ctx, arg, param, false);
 }
 EXPORT_SYMBOL_GPL(tee_client_invoke_func);
+
+int tee_client_system_invoke_func(struct tee_context *ctx,
+				  struct tee_ioctl_invoke_arg *arg,
+				  struct tee_param *param)
+{
+	return _tee_client_invoke_func(ctx, arg, param, true);
+}
+EXPORT_SYMBOL_GPL(tee_client_system_invoke_func);
 
 int tee_client_cancel_req(struct tee_context *ctx,
 			  struct tee_ioctl_cancel_arg *arg)

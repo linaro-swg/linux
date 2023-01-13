@@ -604,6 +604,7 @@ done:
  * @ctx:	calling context
  * @shm:	shared memory holding the message to pass to secure world
  * @offs:	offset of the message in @shm
+ * @system_thread True if invocation expects to use a provisioned TEE system thread
  *
  * Does a FF-A call to OP-TEE in secure world and handles eventual resulting
  * Remote Procedure Calls (RPC) from OP-TEE.
@@ -612,7 +613,7 @@ done:
  */
 
 static int optee_ffa_do_call_with_arg(struct tee_context *ctx,
-				      struct tee_shm *shm, u_int offs)
+				      struct tee_shm *shm, u_int offs, bool system_thread)
 {
 	struct ffa_send_direct_data data = {
 		.data0 = OPTEE_FFA_YIELDING_CALL_WITH_ARG,

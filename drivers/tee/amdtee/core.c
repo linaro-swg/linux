@@ -230,7 +230,7 @@ static void destroy_session(struct kref *ref)
 
 int amdtee_open_session(struct tee_context *ctx,
 			struct tee_ioctl_open_session_arg *arg,
-			struct tee_param *param)
+			struct tee_param *param, bool system_thread)
 {
 	struct amdtee_context_data *ctxdata = ctx->data;
 	struct amdtee_session *sess = NULL;
@@ -301,7 +301,7 @@ out:
 	return rc;
 }
 
-int amdtee_close_session(struct tee_context *ctx, u32 session)
+int amdtee_close_session(struct tee_context *ctx, u32 session, bool system_thread)
 {
 	struct amdtee_context_data *ctxdata = ctx->data;
 	u32 i, ta_handle, session_info;
@@ -405,7 +405,7 @@ void amdtee_unmap_shmem(struct tee_shm *shm)
 
 int amdtee_invoke_func(struct tee_context *ctx,
 		       struct tee_ioctl_invoke_arg *arg,
-		       struct tee_param *param)
+		       struct tee_param *param, bool system_thread)
 {
 	struct amdtee_context_data *ctxdata = ctx->data;
 	struct amdtee_session *sess;
