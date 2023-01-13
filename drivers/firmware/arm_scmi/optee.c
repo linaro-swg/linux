@@ -266,7 +266,7 @@ static int invoke_process_smt_channel(struct scmi_optee_channel *channel)
 	param[0].attr = TEE_IOCTL_PARAM_ATTR_TYPE_VALUE_INPUT;
 	param[0].u.value.a = channel->channel_id;
 
-	ret = tee_client_invoke_func(scmi_optee_private->tee_ctx, &arg, param);
+	ret = tee_client_system_invoke_func(scmi_optee_private->tee_ctx, &arg, param);
 	if (ret < 0 || arg.ret) {
 		dev_err(scmi_optee_private->dev, "Can't invoke channel %u: %d / %#x\n",
 			channel->channel_id, ret, arg.ret);
@@ -297,7 +297,7 @@ static int invoke_process_msg_channel(struct scmi_optee_channel *channel, size_t
 	param[2].u.memref.shm = channel->tee_shm;
 	param[2].u.memref.size = SCMI_OPTEE_MAX_MSG_SIZE;
 
-	ret = tee_client_invoke_func(scmi_optee_private->tee_ctx, &arg, param);
+	ret = tee_client_system_invoke_func(scmi_optee_private->tee_ctx, &arg, param);
 	if (ret < 0 || arg.ret) {
 		dev_err(scmi_optee_private->dev, "Can't invoke channel %u: %d / %#x\n",
 			channel->channel_id, ret, arg.ret);
