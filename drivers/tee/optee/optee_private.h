@@ -301,6 +301,10 @@ void optee_rpc_cmd_free_suppl(struct tee_context *ctx, struct tee_shm *shm);
 void optee_rpc_cmd(struct tee_context *ctx, struct optee *optee,
 		   struct optee_msg_arg *arg);
 
+/* Find a session held in optee context */
+struct optee_session *optee_find_session(struct optee_context_data *ctxdata,
+					 u32 session_id);
+
 /*
  * Small helpers
  */
