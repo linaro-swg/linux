@@ -9,6 +9,7 @@
 #include <linux/arm-smccc.h>
 #include <linux/rhashtable.h>
 #include <linux/semaphore.h>
+#include <linux/spinlock.h>
 #include <linux/tee_drv.h>
 #include <linux/types.h>
 #include "optee_msg.h"
@@ -140,6 +141,15 @@ struct optee_ops {
 			      const struct optee_msg_param *msg_params);
 };
 
+struct optee_thread {
+	spinlock_t lock;
+	size_t thread_cnt;
+	size_t thread_free_cnt;
+	size_t system_thread_cnt;
+	size_t system_thread_free_cnt;
+	bool best_effort;
+};
+
 /**
  * struct optee - main service struct
  * @supp_teedev:	supplicant device
@@ -176,11 +186,13 @@ struct optee {
 	bool   scan_bus_done;
 	struct workqueue_struct *scan_bus_wq;
 	struct work_struct scan_bus_work;
+	struct optee_thread thread;
 };
 
 struct optee_session {
 	struct list_head list_node;
 	u32 session_id;
+	bool system;
 };
 
 struct optee_context_data {
