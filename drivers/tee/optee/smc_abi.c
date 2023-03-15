@@ -920,6 +920,8 @@ static int optee_smc_do_call_with_arg(struct tee_context *ctx,
 		trace_optee_invoke_fn_end(&param, &res);
 
 		if (res.a0 == OPTEE_SMC_RETURN_ETHREAD_LIMIT) {
+			WARN_ONCE(optee->call_queue.total_thread_count,
+				  "OP-TEE thread count mismatch\n");
 			/*
 			 * Out of threads in secure world, wait for a thread
 			 * become available.
