@@ -37,7 +37,6 @@
 	cpus: cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
-		enable-method = "brcm,bcm2836-smp"; // for ARM 32-bit
 
 		/* Source for d/i-cache-line-size and d/i-cache-sets
 		 * https://developer.arm.com/documentation/ddi0500/e/level-1-memory-system
@@ -50,8 +49,7 @@
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <0>;
-			enable-method = "spin-table";
-			cpu-release-addr = <0x0 0x000000d8>;
+                        enable-method = "psci";
 			d-cache-size = <0x8000>;
 			d-cache-line-size = <64>;
 			d-cache-sets = <128>; // 32KiB(size)/64(line-size)=512ways/4-way set
@@ -65,8 +63,7 @@
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <1>;
-			enable-method = "spin-table";
-			cpu-release-addr = <0x0 0x000000e0>;
+                        enable-method = "psci";
 			d-cache-size = <0x8000>;
 			d-cache-line-size = <64>;
 			d-cache-sets = <128>; // 32KiB(size)/64(line-size)=512ways/4-way set
@@ -80,8 +77,7 @@
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <2>;
-			enable-method = "spin-table";
-			cpu-release-addr = <0x0 0x000000e8>;
+                        enable-method = "psci";
 			d-cache-size = <0x8000>;
 			d-cache-line-size = <64>;
 			d-cache-sets = <128>; // 32KiB(size)/64(line-size)=512ways/4-way set
@@ -95,8 +91,7 @@
 			device_type = "cpu";
 			compatible = "arm,cortex-a53";
 			reg = <3>;
-			enable-method = "spin-table";
-			cpu-release-addr = <0x0 0x000000f0>;
+                        enable-method = "psci";
 			d-cache-size = <0x8000>;
 			d-cache-line-size = <64>;
 			d-cache-sets = <128>; // 32KiB(size)/64(line-size)=512ways/4-way set
@@ -121,6 +116,11 @@
 			cache-level = <2>;
 		};
 	};
+
+        psci {
+                compatible = "arm,psci-1.0", "arm,psci-0.2";
+                method = "smc";
+        };
 };
 
 /* Make the BCM2835-style global interrupt controller be a child of the
