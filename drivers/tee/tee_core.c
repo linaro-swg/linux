@@ -9,6 +9,7 @@
 #include <linux/cred.h>
 #include <linux/fs.h>
 #include <linux/idr.h>
+#include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/tee_core.h>
@@ -222,6 +223,11 @@ int tee_session_calc_client_uuid(uuid_t *uuid, u32 connection_method,
 	 * For TEEC_LOGIN_GROUP:
 	 * gid=<gid>
 	 *
+ 	 * For TEEC_LOGIN_APPLICATION:
+	 * path=<command line path>
+  	 *
+ 	 * For TEEC_LOGIN_USER_APPLICATION:
+	 * uid=<uid>,path=<command line path>
 	 */
 
 	name = kzalloc(TEE_UUID_NS_NAME_SIZE, GFP_KERNEL);
@@ -251,6 +257,38 @@ int tee_session_calc_client_uuid(uuid_t *uuid, u32 connection_method,
 		if (name_len >= TEE_UUID_NS_NAME_SIZE) {
 			rc = -E2BIG;
 			goto out_free_name;
+		}
+		break;
+
+	case TEE_IOCTL_LOGIN_APPLICATION:
+		{
+			char path[PATH_MAX];
+			if (get_cmdline(current, path, sizeof(path)) >= sizeof(path)) {
+				rc = -E2BIG;
+				goto out_free_name;
+			}
+			name_len = snprintf(name, TEE_UUID_NS_NAME_SIZE, "path=%s",
+					    path);
+			if (name_len >= TEE_UUID_NS_NAME_SIZE) {
+				rc = -E2BIG;
+				goto out_free_name;
+			}
+		}
+		break;
+
+	case TEE_IOCTL_LOGIN_USER_APPLICATION:
+		{
+			char path[PATH_MAX];
+			if (get_cmdline(current, path, sizeof(path)) >= sizeof(path)) {
+				rc = -E2BIG;
+				goto out_free_name;
+			}
+			name_len = snprintf(name, TEE_UUID_NS_NAME_SIZE, "uid=%x,path=%s",
+					    current_euid().val, path);
+			if (name_len >= TEE_UUID_NS_NAME_SIZE) {
+				rc = -E2BIG;
+				goto out_free_name;
+			}
 		}
 		break;
 
